@@ -1,0 +1,49 @@
+# SystemVerilog/EDA simulation outputs
+csrc/
+simv
+simv.daidir/
+*.vpd
+*.fsdb
+ucli.key
+vc_hdrs.h
+novas*
+verdiLog/
+*.vdb
+urgReport/
+
+# JasperGold
+jgproject/
+
+# Synopsys Design Compiler/PrimeTime
+WORK/
+alib-52/
+*.svf
+*.ddc
+*.mr
+*.syn
+*.pvl
+command.log
+default.svf
+
+# Cadence Innovus
+*.enc
+*.enc.dat/
+innovus.cmd*
+innovus.log*
+
+# cocotb/Python
+sim_build/
+results.xml
+__pycache__/
+*.pyc
+.venv/
+
+# General
+*.log
+*.vcd
+*.saif
+obj_dir/
+.DS_Store
+
+# Downloaded PDK collateral
+syn/lib/asap7/
