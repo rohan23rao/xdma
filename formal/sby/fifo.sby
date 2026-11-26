@@ -1,0 +1,27 @@
+# xdma_fifo: overflow/underflow, count, flags, data order (tracked entry).
+# Depth 4 (power of two) and depth 5 (wrap logic) are both proven.
+[tasks]
+prove_d4 d4 prove
+prove_d5 d5 prove
+cover_d4 d4 cover
+
+[options]
+prove: mode prove
+cover: mode cover
+cover: depth 16
+
+[engines]
+prove: abc pdr
+cover: smtbmc yices
+
+[script]
+d4: read_slang -j 1 -D FORMAL -I. -G WIDTH=4 -G DEPTH=4 --top xdma_fifo xdma_fifo.sv xdma_fifo_sva.sv xdma_fv_reset.sv bind_fifo.sv
+d5: read_slang -j 1 -D FORMAL -I. -G WIDTH=4 -G DEPTH=5 --top xdma_fifo xdma_fifo.sv xdma_fifo_sva.sv xdma_fv_reset.sv bind_fifo.sv
+prep -top xdma_fifo
+
+[files]
+../../rtl/xdma_fifo.sv
+../../sva/xdma_fifo_sva.sv
+../../sva/xdma_sva_defs.svh
+xdma_fv_reset.sv
+bind_fifo.sv

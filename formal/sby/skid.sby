@@ -1,0 +1,24 @@
+# xdma_skid: output stability, conservation (no loss/duplication), order.
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+cover: mode cover
+cover: depth 12
+
+[engines]
+prove: smtbmc yices
+cover: smtbmc yices
+
+[script]
+read_slang -j 1 -D FORMAL -I. -G WIDTH=4 --top xdma_skid xdma_skid.sv xdma_skid_sva.sv xdma_fv_reset.sv bind_skid.sv
+prep -top xdma_skid
+
+[files]
+../../rtl/xdma_skid.sv
+../../sva/xdma_skid_sva.sv
+../../sva/xdma_sva_defs.svh
+xdma_fv_reset.sv
+bind_skid.sv

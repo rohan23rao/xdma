@@ -1,0 +1,38 @@
+`verilator_config
+// Lint waivers (Verilator -Wall) for the XDMA RTL. Each one names the signal and
+// says why the warning is expected. `make lint` must report nothing else.
+
+// Status outputs of shared blocks that a particular instance does not need
+// (FIFO full/empty/count of the burst queues, addr_gen busy).
+lint_off -rule PINCONNECTEMPTY -file "*rtl/xdma_rd_chan.sv"
+lint_off -rule PINCONNECTEMPTY -file "*rtl/xdma_wr_chan.sv"
+lint_off -rule PINCONNECTEMPTY -file "*rtl/xdma_w_mux.sv"
+
+// Low bits of byte quantities that are multiples of 8, or word-aligned
+// addresses: always zero by construction or by the AXI-Lite word decode.
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_addr_gen.sv" -match "*'line_bytes'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_csr.sv" -match "*'s_axil_awaddr'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_csr.sv" -match "*'s_axil_araddr'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_csr.sv" -match "*'head_new'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_pkg.sv" -match "*'d'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_ptw.sv" -match "*'pte_addr'*"
+
+// Merged 32-bit write values of which a register keeps only some bits.
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_csr.sv" -match "*'gctrl_new'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_csr.sv" -match "*'pt_root_new'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_csr.sv" -match "*'ctrl_new'*"
+
+// PTE bits the spec ignores ([31:30] above the 20-bit PPN, [9:4] flags).
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_ptw.sv" -match "*'pte'*"
+
+// Descriptor fields a data path does not use (MM2S ignores IRQ/LAST and
+// NEXT; S2MM likewise): the whole descriptor struct is passed to both.
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_rd_chan.sv" -match "*'dp_desc'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_wr_chan.sv" -match "*'dp_desc'*"
+
+// Loop index wider than the pointer it is cast to.
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_rr_arb.sv" -match "*'idx'*"
+
+// Engine-wide outstanding counts: read by the bound assertions (sva/).
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_top.sv" -match "*'rd_out'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/xdma_top.sv" -match "*'wr_out'*"

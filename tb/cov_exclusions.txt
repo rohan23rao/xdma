@@ -1,0 +1,22 @@
+# Coverage exclusions for `make cov` (tb/coverage.py). One per line:
+#   <kind> <file glob> <name regex> " | " <reason>
+# kind: toggle or line. Only points that are constant by construction or
+# bounded by a parameter are excluded; everything else must be hit.
+toggle xdma_top.sv     ^m_axis_tkeep\b                     | tied to all ones (spec 4)
+toggle xdma_top.sv     ^m_axi_(wstrb|awcache|arcache|awqos|arqos|awprot|arprot|awlock|arlock|awsize|arsize|awburst|arburst)\b | fixed AXI attributes (spec 4)
+toggle xdma_w_mux.sv   ^m_axi_wstrb\b                      | WSTRB is always 0xFF (D-044)
+toggle xdma_csr.sv     ^irq_bits\b                         | constant mask of implemented IRQ bits (D-033)
+toggle xdma_csr.sv     ^irq_set\[(1[2-9]|2[0-9]|3[01]|[4-7])\] | IRQ bits of channels that do not exist (NUM_CH = 4)
+toggle *               ^ev_bytes(\[\d+\])?\[(8|9|10|11)\]   | at most 128 bytes per cycle (16 beats x 8 B); 12-bit field sized for MAX_BURST = 256 (D-050)
+toggle xdma_addr_gen.sv ^lim\[([5-9]|1[0-3])\]              | min() result is at most MAX_BURST = 16 (field is 14 bits wide for the compare, B-001)
+toggle *               ^(len|data_len|rd_len|wr_len|aw_len|ar_len|acc_len)(\[\d+\])?\[[4-7]\] | AXLEN <= MAX_BURST - 1 = 15
+line   xdma_ptw.sv     ^65$                                 | default branch of a fully decoded state enum (unreachable)
+toggle *               ^ev_bytes(\[\d+\])?\[[0-2]\] | byte counts are multiples of 8 (whole beats)
+toggle xdma_csr.sv     ^ev_bytes\[[01]\]\[([4-7])\] | MM2S channels count exactly 8 bytes per beat
+toggle xdma_top.sv     ^ev_bytes\[[01]\]\[([4-7])\] | MM2S channels count exactly 8 bytes per beat
+toggle xdma_rd_chan.sv ^ev_bytes\[[4-7]\] | MM2S counts exactly 8 bytes per beat
+toggle *               ^s_axil_[br]resp\b | AXI4-Lite responses are always OKAY (spec 5)
+toggle xdma_csr.sv     ^ar_word\[[01]\] | word-aligned register decode (B-002): bits [1:0] are 0
+toggle *               ^(acc_id|id|aw_id|aw_acc_id|m_axi_awid)\[3\] | AW IDs are 2..7; only the walker's AR uses ID 8
+toggle *               ^(wb_addr|aw_addr)(\[\d+\])?\[[0-4]\] | status writeback address = 32-byte-aligned descriptor + 0x18: bits [4:0] are constant
+toggle *               ^(walk_addr|ar_addr|ptw_ar_addr)\[[0-2]\] | PTE reads are aligned 8-byte words: bits [2:0] are 0

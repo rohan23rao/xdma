@@ -1,0 +1,31 @@
+# xdma_w_mux: WLAST on the correct beat, AWLEN+1 beats per burst, bursts in
+# AW order (no interleaving), no W for an AW not yet accepted.
+# Reduced for tractability (D-004): 2 MM2S + 2 S2MM, 2 writes in flight,
+# bursts of 1..4 beats; data sources unconstrained. The same assertions
+# run at full size in every simulation.
+[tasks]
+prove
+cover
+
+[options]
+prove: mode prove
+cover: mode cover
+cover: depth 20
+
+[engines]
+prove: abc pdr
+cover: smtbmc yices
+
+[script]
+read_slang -j 1 -D FORMAL -I. -G MAX_OUT_WR=2 --top xdma_w_mux xdma_pkg.sv xdma_fifo.sv xdma_skid.sv xdma_w_mux.sv xdma_w_mux_sva.sv xdma_fv_reset.sv bind_w_mux.sv
+prep -top xdma_w_mux
+
+[files]
+../../rtl/xdma_pkg.sv
+../../rtl/xdma_fifo.sv
+../../rtl/xdma_skid.sv
+../../rtl/xdma_w_mux.sv
+../../sva/xdma_w_mux_sva.sv
+../../sva/xdma_sva_defs.svh
+xdma_fv_reset.sv
+bind_w_mux.sv
