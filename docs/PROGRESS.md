@@ -15,7 +15,7 @@ Tracks the implementation order in SPEC.md section 19.
 | 10 | Performance sweeps and plots | done |
 | 11 | Lint, Yosys + OpenSTA synthesis on ASAP7, gate-level sim, review | done |
 | 12 | Docs: DESIGN_WALKTHROUGH first, RESULTS, README, DECISIONS bug stories, FUTURE | done |
-| 9 | Coverage closure, parameter variants | next |
+| 9 | Coverage closure, parameter variants | done |
 
 The owner reordered the remaining steps to 7, 8, 10, 11, 12, 9 so that
 RESULTS.md gets real bandwidth, clock, area and power numbers before
@@ -23,3 +23,5 @@ coverage closure.
 
 ## Open issues
 
+None. All steps are done; see results/RESULTS.md for the numbers and
+docs/DECISIONS.md for every deviation from the spec.

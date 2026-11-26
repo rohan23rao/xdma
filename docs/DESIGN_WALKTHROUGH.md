@@ -469,3 +469,62 @@ Two findings are instructive.
 3. *Post-synthesis versus post-route?* These numbers have ideal clocks and
    no wire parasitics. Expect post-route Fmax to drop once clock skew and
    wire RC are included.
+
+---
+
+## 11. Verification strategy
+
+**Structure (UVM-style layering on cocotb).**
+- *Agents:* an AXI4 slave memory model written for this project
+  (`tb/models/axi_mem.py`), an AXI4-Lite master and stream sinks
+  (cocotbext-axi), and a stream source driver that can produce any
+  TKEEP/TLAST pattern.
+- *Reference model:* `ref_model.py` predicts the stream, memory image,
+  status words and IRQ bits from the descriptors and page tables.
+- *Constrained-random stimulus:* `desc_builder.py` and `page_table.py` add
+  weighted corners: 4 KB edges, every stride sign, chains of 1 to 64,
+  scattered pages and faults.
+- *Scoreboard:* compares every stream beat, every destination byte, and
+  that no byte outside the destinations changed.
+- *Environment:* `env.py` holds the register sequences shared by every
+  test.
+
+Assertions under `sva/` are bound into every simulation. They are the same
+files the formal proofs use, so a formal assumption is checked as an
+assertion against the real neighbouring block in every run.
+
+**The memory model is deliberately hostile.** It applies latency and
+jitter, READY/VALID throttling on all five channels, out-of-order
+responses across IDs with R interleaving, SLVERR/DECERR by address range,
+W before AW, and an AWREADY that waits for WVALID. Every one of these knobs
+exposed or guards against a real bug. The last one found B-004.
+
+**Closure.** Functional coverage (cocotb-coverage) has 53/53 bins hit, and
+the bound cover properties have 25/25 hit. RTL line coverage is 100% and
+toggle coverage 99.9% after a short, justified exclusion list
+(`tb/cov_exclusions.txt`: tie-offs, parameter-bounded fields, alignment
+constants). The race cases that an AXI-Lite write cannot place on an exact
+cycle are driven by a directed test that pulses the internal one-cycle
+ABORT register in the exact cycle (`test_abort_races`).
+
+**Independent review as a verification tool.** Three fresh reviewers each
+checked the RTL against the spec without seeing the author's decisions.
+They found four bugs the tests could not see, because the testbench shared
+the author's assumptions: the AWREADY deadlock, a simulation/synthesis
+mismatch, a drain-cycle leak, and the flush-versus-walk race. Each one then
+got a test that fails on the old RTL.
+
+**Likely questions**
+1. *How do you know the testbench can fail?* Mutation checks: disabling the
+   FIFO reservation makes `a_rd_reserve_fits` fire; restoring the old W
+   push point makes the S2MM test time out; disabling the stale-walk fix
+   makes `test_tlb_flush` read the wrong page. The formal proofs were
+   checked the same way against broken RTL.
+2. *How do you reproduce a random failure?* Every test prints its seed, and
+   the regression prints the exact `make sim TEST=... SEED=... PARAMS=...`
+   line. Seeds drive both the stimulus and Verilator's random initial
+   values.
+3. *What is not covered?* Timing with real wire delays (the gate-level
+   simulation is zero-delay), clock-domain crossings (none by design), and
+   the commercial tool flow. RESULTS.md lists 19 toggle bits that are still
+   unexercised.
