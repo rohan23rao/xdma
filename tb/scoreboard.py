@@ -42,6 +42,7 @@ class ChannelJob:
                         mem.write(pa, bytes(rng.getrandbits(8) for _ in range(d.line_bytes)))
             self.exp = predict_mm2s(mem.read, chain, xlat, self.max_burst)
         self.mon_start = len(env.mons[c].beats) if not self.write else 0
+        self.dest_before = {a: mem.read(a, 1)[0] for a in self.exp.writes} if self.write else {}
 
     def stream_beats(self):
         """S2MM input beats: TLAST at the end of each EOP descriptor."""
@@ -54,12 +55,20 @@ class ChannelJob:
                 pos += 8
         return out
 
-    async def run(self, timeout=400000):
+    async def run(self, timeout=400000, beats=None):
+        """Start the chain, feed the stream (S2MM) in the background, wait
+        until the channel is idle. beats overrides the S2MM input (used to
+        inject stream errors)."""
         env, c = self.env, self.c
         await env.start_chain(c, self.chain[0][0])
+        drv = None
         if self.write and self.drive:
-            await env.send_beats(c - env.p["NUM_MM2S"], self.stream_beats())
+            drv = env.drv[c - env.p["NUM_MM2S"]]
+            feed = cocotb.start_soon(drv.send(beats if beats is not None else self.stream_beats()))
         self.st = await env.wait_idle(c, timeout)
+        if drv is not None:
+            drv.stop()          # after an error the channel takes no more beats
+            await feed
 
     async def check(self):
         env, c, exp = self.env, self.c, self.exp
@@ -124,3 +133,51 @@ async def run_jobs(env, jobs):
     await env.quiesce()
     for j in jobs:
         await j.check()
+
+
+async def check_error(env, job, err, k, err_addr=None, writeback=True):
+    """Check a chain that ended in error `err` while executing descriptor k.
+    Descriptors before k completed normally; descriptor k got the error
+    status writeback (DONE=1, ERR=err) if `writeback`, else its status word
+    is untouched; later descriptors were not touched. MM2S stream beats are
+    a prefix of the expected stream; S2MM bytes written are correct and
+    inside the destinations (check_memory covers the rest)."""
+    from models.ref_model import ERR_NAMES
+    c, tag = job.c, f"ch{job.c}"
+    got_err = (job.st >> 1) & 7
+    if got_err != err:
+        fail(f"{tag}: STATUS.ERR={ERR_NAMES[got_err]}, expected {ERR_NAMES[err]}")
+    if job.st >> 8 != k:
+        fail(f"{tag}: {job.st >> 8} descriptors completed, expected {k}")
+    if err_addr is not None:
+        ea = await env.ch_rd(c, 0x10)
+        if ea != err_addr:
+            fail(f"{tag}: ERR_ADDR={ea:#x}, expected {err_addr:#x}")
+    irqs = await env.rd(IRQ_STATUS)
+    if not irqs >> (8 + c) & 1:
+        fail(f"{tag}: ERROR interrupt bit not set")
+    for i, (a, d) in enumerate(job.chain):
+        w = env.mem.read64(a + 0x18)
+        if i < k:
+            want = status_word(1, ERR_NONE, d.nbytes())
+            if w != want:
+                fail(f"{tag}: descriptor {i} status {w:#018x}, expected {want:#018x}")
+        elif i == k and writeback:
+            nb = w >> 32
+            if (w & 0xF) != (1 | err << 1) or nb % 8 or nb > d.nbytes():
+                fail(f"{tag}: error descriptor {i} status {w:#018x} (DONE=1, ERR={err}, BYTES<= {d.nbytes()} expected)")
+        elif w != 0:
+            fail(f"{tag}: descriptor {i} status written ({w:#018x}) after the error")
+    if not job.write:
+        got = env.mons[c].beats[job.mon_start:]
+        exp = job.exp.stream
+        if len(got) > len(exp):
+            fail(f"{tag}: {len(got)} stream beats, more than the {len(exp)} expected")
+        for i, ((_, dd, ll), (ed, el)) in enumerate(zip(got, exp)):
+            if dd != ed or ll != el:
+                fail(f"{tag}: beat {i}: data {dd:#018x} tlast {ll}, expected {ed:#018x} tlast {el}")
+    else:
+        for a, b in job.exp.writes.items():
+            v = env.mem.read(a, 1)[0]
+            if v != b and v != job.dest_before.get(a, 0):
+                fail(f"{tag}: memory byte {a:#x} = {v:#04x}: neither the data ({b:#04x}) nor the old value")

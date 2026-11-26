@@ -28,6 +28,10 @@ TESTS = {
     "test_loopback_copy":   dict(top="xdma_tb", random=True),
     "test_chain":           dict(top="xdma_tb", random=True),
     "test_all_channels":    dict(top="xdma_tb", random=True),
+    "test_axi_errors":      dict(top="xdma_tb", random=True),
+    "test_stream_len":      dict(top="xdma_tb", random=True),
+    "test_abort":           dict(top="xdma_tb", random=True),
+    "test_irq":             dict(top="xdma_tb", random=True),
 }
 
 RTL_ORDER = ["xdma_pkg.sv"]

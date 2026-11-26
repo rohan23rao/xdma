@@ -150,6 +150,14 @@ class XdmaEnv:
                 fail("stream monitor: " + "; ".join(m.errors))
 
     # ------------------------------------------------------------- streams
+    def ch_state(self, c):
+        """Channel controller state (0 IDLE, 1 FETCH, 2 RUN, 3 WB, 4 WB_WAIT,
+        5 DRAIN, 6 EWB, 7 EWB_WAIT, 8 FINISH), read through the hierarchy."""
+        return int(self.dut.u_dut.g_ch[c].u_ctl.state.value)
+
+    async def abort(self, c):
+        await self.ch_wr(c, CTRL, 0x5)      # keep EN, ABORT
+
     async def send_beats(self, i, beats):
         """Drive beats [(data64, tkeep, tlast)] on S2MM port i, with random
         gaps when src_pause is set. Returns when the last beat is accepted."""
@@ -171,13 +179,22 @@ class StreamDriver:
         self.rng, self.pause = rng, pause
         self.sent = 0
         self.lock = cocotb.triggers.Lock()
+        self._stop = False
+
+    def stop(self):
+        """Abandon the beats not yet accepted (the channel stopped taking
+        them, e.g. after an error or abort)."""
+        self._stop = True
 
     async def send(self, beats):
         async with self.lock:
+            self._stop = False
             for data, keep, last in beats:
-                while self.pause and self.rng.random() < self.pause:
+                while self.pause and self.rng.random() < self.pause and not self._stop:
                     self.v.value = 0
                     await RisingEdge(self.clk)
+                if self._stop:
+                    break
                 self.v.value = 1
                 self.d.value = data
                 self.k.value = keep
@@ -186,7 +203,10 @@ class StreamDriver:
                     await ReadOnly()
                     rdy = int(self.r.value)
                     await RisingEdge(self.clk)
-                    if rdy:
+                    if rdy or self._stop:
                         break
+                if not rdy:
+                    break
                 self.sent += 1
             self.v.value = 0
+            self._stop = False

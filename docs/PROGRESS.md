@@ -10,8 +10,8 @@ Tracks the implementation order in SPEC.md section 19.
 | 4 | MM2S path, descriptor fetcher, 1D/2D/4K tests | done |
 | 5 | S2MM path, W mux, writeback, loopback, chain | done |
 | 6 | All channels, arbiters, assertions, review | done |
-| 7 | Errors, abort, interrupts | next |
-| 8 | TLB + walker, translation tests, soak, second review | |
+| 7 | Errors, abort, interrupts | done |
+| 8 | TLB + walker, translation tests, soak, second review | next |
 | 10 | Performance sweeps and plots | |
 | 11 | Lint, Yosys + OpenSTA synthesis on ASAP7, review | |
 | 12 | Docs: DESIGN_WALKTHROUGH first, RESULTS, README, DECISIONS bug stories, FUTURE | |
@@ -23,5 +23,4 @@ coverage closure.
 
 ## Open issues
 
-- Error, abort and translation paths are implemented but not yet tested
-  (steps 7 and 8).
+- Translation (TLB + walker) is implemented but not yet tested (step 8).
