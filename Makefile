@@ -5,6 +5,8 @@
 #   make regress [SEEDS=200]        every random test across N seeds
 #   make cov                        line/toggle/assertion + functional coverage
 #   make formal                     every SymbiYosys proof, summary table
+#   make syn                        Yosys + OpenSTA on ASAP7: Fmax, area, power
+#   make gls                        gate-level sim of test_loopback_copy
 #   make perf                       performance sweeps, CSV + PNG
 #   make results                    regenerate results/RESULTS.md
 
@@ -19,7 +21,7 @@ PARAMS  ?=
 SIM_ARGS := $(if $(TEST),--test $(TEST)) $(if $(SEED),--seed $(SEED)) \
             $(if $(filter 1,$(WAVES)),--waves) $(if $(PARAMS),--params $(PARAMS))
 
-.PHONY: lint sim regress cov formal perf results clean
+.PHONY: lint sim regress cov formal syn gls perf results clean
 
 lint:
 	./tools/lint.sh
@@ -36,6 +38,12 @@ cov:
 formal:
 	$(PY) formal/run_formal.py
 
+syn:
+	$(PY) syn/yosys/run_syn.py
+
+gls:
+	$(PY) tb/run.py --test gls_loopback_copy --seed $(or $(SEED),1)
+
 perf:
 	$(PY) perf/run_perf.py --jobs $(JOBS)
 
@@ -43,5 +51,5 @@ results:
 	$(PY) tools/make_results.py
 
 clean:
-	rm -rf tb/build formal/out perf/build
+	rm -rf tb/build formal/out perf/build perf/out syn/out
 	find formal/sby -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +

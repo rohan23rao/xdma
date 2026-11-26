@@ -42,7 +42,21 @@ TESTS = {
     "perf_desc":            dict(top="xdma_tb", random=False),
     "perf_xlat":            dict(top="xdma_tb", random=False),
     "perf_idle":            dict(top="xdma_tb", random=False),
+    # gate-level simulation (zero delay) of the synthesized netlist
+    "gls_loopback_copy":    dict(top="xdma_tb", random=True, module="test_loopback_copy", gls=True),
 }
+
+GLS_NETLIST = os.environ.get("XDMA_GLS_NETLIST", str(ROOT / "syn" / "out" / "netlist_final_nocg.v"))
+
+
+def gls_sources():
+    """ASAP7 combinational cell models, functional sequential models, the
+    netlist and the testbench wrapper (no RTL, no assertions)."""
+    lib = ROOT / "syn" / "lib" / "asap7" / "verilog"
+    cells = [lib / f for f in ("asap7sc7p5t_AO_RVT_TT_201020.v", "asap7sc7p5t_INVBUF_RVT_TT_201020.v",
+                               "asap7sc7p5t_OA_RVT_TT_201020.v", "asap7sc7p5t_SIMPLE_RVT_TT_201020.v")]
+    return cells + [ROOT / "syn" / "gls" / "asap7_seq_models.v", pathlib.Path(GLS_NETLIST),
+                    TB / "hdl" / "xdma_tb.sv"]
 
 RTL_ORDER = ["xdma_pkg.sv"]
 
@@ -65,11 +79,15 @@ def parse_params(text):
 _RUNNERS = {}
 
 
-def build(top, params, cov=False, waves=False, defines=None):
+def build(top, params, cov=False, waves=False, defines=None, gls=False):
     """Compile one (top, params) configuration; returns (runner, build dir)."""
     defines = dict(defines or {})
+    if gls:
+        defines["XDMA_GLS"] = 1
     saif = bool(os.environ.get("XDMA_SAIF"))
     key = f"{top}|{sorted(params.items())}|cov={cov}|waves={waves}|saif={saif}|{sorted(defines.items())}"
+    if gls:
+        key += f"|gls={GLS_NETLIST}"
     tag = hashlib.sha1(key.encode()).hexdigest()[:10]
     bdir = TB / "build" / f"{top}_{tag}"
     args = ["--assert", "-Wno-fatal", "-Wno-lint", "-Wno-style",
@@ -89,7 +107,9 @@ def build(top, params, cov=False, waves=False, defines=None):
         # set up the runner's state without running any build command.
         runner._execute = lambda *a, **k: None
     # the cocotb runner passes VM_TRACE=<waves> to make, so SAIF needs waves on
-    runner.build(sources=sources(), includes=[ROOT / "sva", ROOT / "rtl"],
+    if gls:
+        args = args + ["-Wno-SPECIFYIGN", "--no-timing"]
+    runner.build(sources=gls_sources() if gls else sources(), includes=[ROOT / "sva", ROOT / "rtl"],
                  hdl_toplevel=top, parameters=params, defines=defines,
                  build_args=args, build_dir=bdir, waves=waves or saif,
                  log_file=None)
@@ -99,14 +119,15 @@ def build(top, params, cov=False, waves=False, defines=None):
 
 
 def build_for(test, params=None, cov=False, waves=False):
-    return build(TESTS[test]["top"], dict(params or {}), cov=cov, waves=waves)
+    t = TESTS[test]
+    return build(t["top"], dict(params or {}), cov=cov, waves=waves, gls=t.get("gls", False))
 
 
 def run_one(test, seed, params=None, cov=False, waves=False, quiet=False, extra_env=None):
     """Run one test with one seed. Returns (passed, log_path)."""
     params = dict(params or {})
     spec = TESTS[test]
-    runner, bdir = build(spec["top"], params, cov=cov, waves=waves)
+    runner, bdir = build(spec["top"], params, cov=cov, waves=waves, gls=spec.get("gls", False))
     tag = f"{test}_s{seed}" + ("_" + "_".join(f"{k}{v}" for k, v in sorted(params.items())) if params else "")
     tdir = bdir / "runs" / tag
     tdir.mkdir(parents=True, exist_ok=True)
@@ -120,7 +141,7 @@ def run_one(test, seed, params=None, cov=False, waves=False, quiet=False, extra_
         plus.append(f"+verilator+coverage+file+{tdir / 'coverage.dat'}")
     try:
         targs = ["--trace", "--trace-file", os.environ["XDMA_SAIF"]] if os.environ.get("XDMA_SAIF") else []
-        xml = runner.test(test_module=test, hdl_toplevel=spec["top"], seed=seed,
+        xml = runner.test(test_module=spec.get("module", test), hdl_toplevel=spec["top"], seed=seed,
                           build_dir=bdir, test_dir=tdir, plusargs=plus, test_args=targs,
                           extra_env=env, waves=waves, log_file=log if quiet else None,
                           results_xml=str(tdir / "results.xml"))

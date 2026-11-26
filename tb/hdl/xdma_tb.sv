@@ -97,6 +97,10 @@ module xdma_tb #(
   logic [1:0][63:0] md, sd;
   logic [1:0][7:0]  mk, sk;
 
+`ifdef XDMA_GLS
+  // gate-level netlist: parameters were fixed at synthesis
+  xdma_top u_dut (
+`else
   xdma_top #(
     .NUM_MM2S(2), .NUM_S2MM(2), .ID_W(ID_W),
     .MAX_BURST(MAX_BURST),
@@ -107,6 +111,7 @@ module xdma_tb #(
     .TLB_ENTRIES(TLB_ENTRIES),
     .PREFETCH_EN(PREFETCH_EN)
   ) u_dut (
+`endif
     .clk, .rst_n,
     .s_axil_awvalid, .s_axil_awready, .s_axil_awaddr, .s_axil_wvalid, .s_axil_wready,
     .s_axil_wdata, .s_axil_wstrb, .s_axil_bvalid, .s_axil_bready, .s_axil_bresp,

@@ -12,8 +12,8 @@ Tracks the implementation order in SPEC.md section 19.
 | 6 | All channels, arbiters, assertions, review | done |
 | 7 | Errors, abort, interrupts | done |
 | 8 | TLB + walker, translation tests, soak, second review | done |
-| 10 | Performance sweeps and plots | next |
-| 11 | Lint, Yosys + OpenSTA synthesis on ASAP7, review | |
+| 10 | Performance sweeps and plots | done |
+| 11 | Lint, Yosys + OpenSTA synthesis on ASAP7, review | next (lint done) |
 | 12 | Docs: DESIGN_WALKTHROUGH first, RESULTS, README, DECISIONS bug stories, FUTURE | |
 | 9 | Coverage closure, parameter variants | |
 
