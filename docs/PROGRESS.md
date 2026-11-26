@@ -11,16 +11,17 @@ Tracks the implementation order in SPEC.md section 19.
 | 5 | S2MM path, W mux, writeback, loopback, chain | done |
 | 6 | All channels, arbiters, assertions, review | done |
 | 7 | Errors, abort, interrupts | next |
-| 8 | TLB + walker, translation tests, soak, review | |
-| 9 | Coverage closure, parameter variants | |
+| 8 | TLB + walker, translation tests, soak, second review | |
 | 10 | Performance sweeps and plots | |
 | 11 | Lint, Yosys + OpenSTA synthesis on ASAP7, review | |
-| 12 | RESULTS, README, DECISIONS, FUTURE, walkthrough | |
+| 12 | Docs: DESIGN_WALKTHROUGH first, RESULTS, README, DECISIONS bug stories, FUTURE | |
+| 9 | Coverage closure, parameter variants | |
+
+The owner reordered the remaining steps to 7, 8, 10, 11, 12, 9 so that
+RESULTS.md gets real bandwidth, clock, area and power numbers before
+coverage closure.
 
 ## Open issues
 
-- Prefetch bubble (DECISIONS.md, "OPEN (review 4)"): the spec's state machine
-  and its "no bubble beyond writeback latency" requirement cannot both hold;
-  waiting on the owner.
 - Error, abort and translation paths are implemented but not yet tested
   (steps 7 and 8).

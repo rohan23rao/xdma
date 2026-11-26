@@ -198,7 +198,7 @@ IDLE --START--> FETCH --desc valid--> RUN --all data done--> WRITEBACK --LAST-->
 ```
 
 - **FETCH:** one AR for 32 bytes (4 beats, ARLEN = 3) at the descriptor address, using the channel's descriptor ID (section 9.1).
-- **Prefetch:** while in RUN, the fetcher may fetch the next descriptor (if the current one is not LAST) into a one-entry shadow register. This is required: the `desc_chain` performance test must show no bubble between consecutive descriptors beyond writeback latency.
+- **Prefetch:** while in RUN, the fetcher may fetch the next descriptor (if the current one is not LAST) into a one-entry shadow register. This is required. Prefetch hides descriptor fetch latency. The remaining inter-descriptor gap (status writeback round trip + first read latency) is measured by the descriptor-overhead experiment and reported in RESULTS.md.
 - **RUN completes** for MM2S when every R beat of the descriptor has been accepted by the stream port; for S2MM when every B response for the descriptor has returned OKAY.
 - **WRITEBACK:** one AW + one W beat (full 64-bit beat, WSTRB = 0xFF) to word 3 (offset 0x18) with DONE, ERR and BYTES; wait for B. The channel does not report DONE until this B returns.
 - **DRAIN:** stop issuing new requests. Wait for every outstanding AR/AW of this channel to complete (AXI transactions cannot be cancelled). MM2S discards drained R data; S2MM drops TREADY and discards FIFO contents after all B responses return. Then write back the error status to the descriptor if the error is not on the descriptor fetch itself, set ERR, raise the ERROR interrupt bit, go IDLE.

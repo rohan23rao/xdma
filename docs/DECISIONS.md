@@ -203,12 +203,12 @@ the chain as the 7.1 diagram suggests.
 writeback (the spec's wording contradicts itself; both readings end in a
 full-beat write).
 
-**OPEN (review 4) Prefetch "no bubble beyond writeback latency".** With
-prefetch the next descriptor's read latency is gone, but its first data read
-still starts only after the writeback B returns, because the spec's state
-machine runs RUN -> WRITEBACK -> (FETCH) -> RUN in sequence and RUN of the
-next descriptor may not start before the writeback completes. The gap
-between descriptors is therefore writeback latency + first-read latency.
-Meeting the stated requirement exactly needs the next descriptor's data to
-overlap the previous writeback, which the state machine forbids. Raised
-with the owner; current RTL follows the state machine.
+**D-045 (review 4) Prefetch keeps the 7.1 state machine (owner decision).**
+The spec asked for "no bubble between consecutive descriptors beyond
+writeback latency", but its own state machine runs RUN -> WRITEBACK -> RUN
+in sequence, so the next descriptor's first data read can only start after
+the writeback B returns. The owner chose to keep the state machine and
+reworded SPEC.md 7.1: prefetch hides the descriptor fetch latency; the
+remaining gap (status writeback round trip + first read latency) is
+measured by the descriptor-overhead experiment and reported in RESULTS.md.
+Overlapping the next descriptor with the writeback is in FUTURE.md.
