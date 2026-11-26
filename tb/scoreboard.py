@@ -16,17 +16,19 @@ from models.ref_model import (ERR_NAMES, ERR_NONE, predict_mm2s, predict_s2mm, s
 
 
 class ChannelJob:
-    def __init__(self, env, c, chain, xlat=None, src_fill=True):
+    def __init__(self, env, c, chain, xlat=None, src_fill=True, stream_bytes=None, drive=True):
         self.env, self.c, self.chain, self.xlat = env, c, chain, xlat
         p = env.p
         self.write = c >= p["NUM_MM2S"]
+        self.drive = drive
         self.max_burst = p["MAX_BURST"]
         mem, rng = env.mem, env.rng
         for a, d in chain:
             mem.write(a, d.to_bytes())
         if self.write:
             total = sum(d.nbytes() for _, d in chain)
-            self.stream_bytes = bytes(rng.getrandbits(8) for _ in range(total))
+            self.stream_bytes = stream_bytes if stream_bytes is not None else \
+                bytes(rng.getrandbits(8) for _ in range(total))
             self.exp = predict_s2mm(chain, self.stream_bytes, xlat, self.max_burst)
         else:
             if src_fill:
@@ -55,7 +57,7 @@ class ChannelJob:
     async def run(self, timeout=400000):
         env, c = self.env, self.c
         await env.start_chain(c, self.chain[0][0])
-        if self.write:
+        if self.write and self.drive:
             await env.send_beats(c - env.p["NUM_MM2S"], self.stream_beats())
         self.st = await env.wait_idle(c, timeout)
 

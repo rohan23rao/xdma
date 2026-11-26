@@ -24,6 +24,9 @@ TESTS = {
     "test_mm2s_1d":         dict(top="xdma_tb", random=True),
     "test_2d":              dict(top="xdma_tb", random=True),
     "test_boundary_4k":     dict(top="xdma_tb", random=True),
+    "test_s2mm_1d":         dict(top="xdma_tb", random=True),
+    "test_loopback_copy":   dict(top="xdma_tb", random=True),
+    "test_chain":           dict(top="xdma_tb", random=True),
 }
 
 RTL_ORDER = ["xdma_pkg.sv"]

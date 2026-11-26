@@ -70,6 +70,7 @@ module xdma_tb #(
   input  logic [1:0]  m_axi_rresp,
   input  logic        m_axi_rlast,
   output logic        irq,
+  input  logic        loop_en,   // 1: MM2S port 0 drives S2MM port 0 (memory copy)
   output logic        m_axis0_tvalid,
   input  logic        m_axis0_tready,
   output logic [63:0] m_axis0_tdata,
@@ -124,15 +125,15 @@ module xdma_tb #(
   );
 
   assign m_axis0_tvalid = mv[0];
-  assign mr[0] = m_axis0_tready;
+  assign mr[0] = loop_en ? sr[0] : m_axis0_tready;
   assign m_axis0_tdata = md[0];
   assign m_axis0_tkeep = mk[0];
   assign m_axis0_tlast = ml[0];
-  assign sv[0] = s_axis0_tvalid;
+  assign sv[0] = loop_en ? mv[0] : s_axis0_tvalid;
   assign s_axis0_tready = sr[0];
-  assign sd[0] = s_axis0_tdata;
-  assign sk[0] = s_axis0_tkeep;
-  assign sl[0] = s_axis0_tlast;
+  assign sd[0] = loop_en ? md[0] : s_axis0_tdata;
+  assign sk[0] = loop_en ? mk[0] : s_axis0_tkeep;
+  assign sl[0] = loop_en ? ml[0] : s_axis0_tlast;
 
   assign m_axis1_tvalid = mv[1];
   assign mr[1] = m_axis1_tready;

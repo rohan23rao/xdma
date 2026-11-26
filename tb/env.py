@@ -41,6 +41,9 @@ class StreamMonitor:
         self.d = getattr(dut, f"m_axis{i}_tdata")
         self.l = getattr(dut, f"m_axis{i}_tlast")
         self.k = getattr(dut, f"m_axis{i}_tkeep")
+        # In loopback mode port 0's real TREADY is S2MM port 0's TREADY.
+        self.loop = dut.loop_en if i == 0 else None
+        self.r_loop = dut.s_axis0_tready
         self.beats = []
         self.errors = []
         self.clk = dut.clk
@@ -52,7 +55,8 @@ class StreamMonitor:
             await RisingEdge(self.clk)
             cycle += 1
             await ReadOnly()
-            if int(self.v.value) and int(self.r.value):
+            ready = self.r_loop if (self.loop is not None and int(self.loop.value)) else self.r
+            if int(self.v.value) and int(ready.value):
                 if int(self.k.value) != 0xFF:
                     self.errors.append(f"TKEEP {int(self.k.value):#x} at cycle {cycle}")
                 self.beats.append((cycle, int(self.d.value), int(self.l.value)))
@@ -77,6 +81,7 @@ class XdmaEnv:
         for i in range(2):
             getattr(dut, f"s_axis{i}_tvalid").value = 0
             getattr(dut, f"m_axis{i}_tready").value = 0
+        dut.loop_en.value = 0
         for n in ("awvalid", "wvalid", "bready", "arvalid", "rready"):
             getattr(dut, f"s_axil_{n}").value = 0
         self.axi.start()
