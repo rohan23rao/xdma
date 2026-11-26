@@ -126,3 +126,70 @@ class ChainResult:
     err_addr: int = 0
     descs_done: int = 0
     nbytes: int = 0
+
+
+def walk_chain(read_bytes, head, limit=4096):
+    """Follow NEXT pointers from head. Returns [(addr, Desc)] up to and
+    including the first LAST or invalid descriptor."""
+    out = []
+    a = head
+    while len(out) < limit:
+        d = decode_desc(read_bytes(a, 32))
+        out.append((a, d))
+        if not d.valid() or d.last:
+            break
+        a = d.nxt
+    return out
+
+
+def predict_mm2s(read_bytes, chain, xlat=None, max_burst=16):
+    """Expected MM2S result for a chain with no AXI errors.
+    xlat: Translator or None (TRANSLATE_EN = 0)."""
+    res = ChainResult()
+    for daddr, d in chain:
+        if not d.valid():
+            res.err, res.err_addr = ERR_DESC_INVALID, daddr
+            return res
+        beats = []
+        for va, nb, _ in d.bursts(max_burst):
+            pa = va
+            if xlat is not None:
+                pa, why = xlat.translate(va, write=False)
+                if pa is None:
+                    res.err, res.err_addr = ERR_XLAT_FAULT, va
+                    return res
+            data = read_bytes(pa, nb * 8)
+            beats += [int.from_bytes(data[i:i + 8], "little") for i in range(0, nb * 8, 8)]
+        for i, b in enumerate(beats):
+            res.stream.append((b, int(d.eop and i == len(beats) - 1)))
+        res.status[daddr] = status_word(1, ERR_NONE, d.nbytes())
+        res.done_irq |= d.irq
+        res.descs_done += 1
+        res.nbytes += d.nbytes()
+    return res
+
+
+def predict_s2mm(chain, stream_bytes, xlat=None, max_burst=16):
+    """Expected S2MM result: the incoming bytes are written in burst order.
+    Returns ChainResult with .writes = {pa: byte}."""
+    res = ChainResult()
+    pos = 0
+    for daddr, d in chain:
+        if not d.valid():
+            res.err, res.err_addr = ERR_DESC_INVALID, daddr
+            return res
+        for va, nb, _ in d.bursts(max_burst):
+            pa = va
+            if xlat is not None:
+                pa, why = xlat.translate(va, write=True)
+                if pa is None:
+                    res.err, res.err_addr = ERR_XLAT_FAULT, va
+                    return res
+            for i in range(nb * 8):
+                res.writes[(pa + i) & MASK32] = stream_bytes[pos + i]
+            pos += nb * 8
+        res.status[daddr] = status_word(1, ERR_NONE, d.nbytes())
+        res.done_irq |= d.irq
+        res.descs_done += 1
+        res.nbytes += d.nbytes()
+    return res

@@ -55,3 +55,10 @@ The burst size compared `rem`, `MAX_BURST` and `to_4k` at `LBB+1` bits
 0. At the default `LB_W = 16` the width is 14 bits and the bug is latent, but
 the module is parameterized and the bug is real. Fix: compare at
 `max(LBB+1, 10)` bits. Found by `a_ag_beats_min` in `addr_gen_prove_b16`.
+
+**B-002 CSR: sub-word writes ignored (found by test_csr).**
+The CSR block compared the full AWADDR with the register offset. A byte
+write from cocotbext-axi puts the byte's address on AWADDR (e.g. 0x016 for
+lane 2 of IRQ_MASK), so the write matched no register. AXI4-Lite allows an
+unaligned AxADDR with the lane selected by WSTRB. Fix: decode on the word
+address (`AxADDR[11:2]`) for both reads and writes.

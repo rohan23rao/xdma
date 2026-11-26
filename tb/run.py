@@ -20,6 +20,7 @@ from cocotb_tools.runner import get_runner  # noqa: E402
 # name -> toplevel, whether it is randomized (runs across seeds in regress)
 TESTS = {
     "test_addr_gen":        dict(top="xdma_addr_gen", random=True),
+    "test_csr":             dict(top="xdma_tb", random=False),
 }
 
 RTL_ORDER = ["xdma_pkg.sv"]
@@ -29,7 +30,7 @@ def sources():
     rtl = sorted((ROOT / "rtl").glob("*.sv"), key=lambda p: (p.name not in RTL_ORDER, p.name))
     sva = sorted((ROOT / "sva").glob("*_sva.sv"))
     binds = [ROOT / "sva" / "xdma_bind.sv"]
-    return rtl + sva + [b for b in binds if b.exists()]
+    return rtl + sva + [b for b in binds if b.exists()] + sorted((TB / "hdl").glob("*.sv"))
 
 
 def parse_params(text):
