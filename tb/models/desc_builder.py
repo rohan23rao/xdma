@@ -14,9 +14,11 @@ from .ref_model import Desc
 class Allocator:
     """Bump allocator over [lo, hi) with random gaps; 8-byte granules."""
 
-    def __init__(self, rng, lo=0x0010_0000, hi=0x7000_0000):
+    def __init__(self, rng, lo=0x0010_0000, hi=0xF000_0000):
         self.rng = rng
-        self.next = lo
+        # start anywhere in the lower half of the range, so across seeds
+        # buffers and descriptors exercise high and low address bits
+        self.next = lo + (rng.randrange(0, (hi - lo) // 2) & ~0xFFF)
         self.hi = hi
 
     def alloc(self, size, align=8, near_4k=False):

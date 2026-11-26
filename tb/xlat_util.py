@@ -4,8 +4,8 @@ from models.desc_builder import Allocator, DescBuilder
 from models.page_table import PageTables
 from models.ref_model import Translator
 
-VA_LO, VA_HI = 0x4000_0000, 0xF000_0000   # virtual data buffers
-PA_LO, PA_HI = 0x0010_0000, 0x3000_0000   # physical: descriptors, tables, pages
+VA_LO, VA_HI = 0x4000_0000, 0xE000_0000   # virtual data buffers (below the fault regions)
+PA_LO, PA_HI = 0x0010_0000, 0xFFF0_0000   # physical: descriptors, tables, pages
 
 
 class XlatSetup:

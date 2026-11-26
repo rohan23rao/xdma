@@ -35,7 +35,8 @@ module xdma_fifo_sva #(
       (int'(count) == int'($past(count)) + int'($past(push && !full)) - int'($past(pop && !empty))))
 
   `XC(c_fifo_full, full)
-  `XC(c_fifo_push_pop_full, full && push && pop)
+  // drained from full (a push into a full FIFO is illegal, see a_fifo_no_overflow)
+  `XC(c_fifo_pop_full, full && pop)
 
 `ifdef FORMAL
   // Tracked-entry check: pick any one pushed entry, follow how many entries

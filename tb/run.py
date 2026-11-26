@@ -36,6 +36,7 @@ TESTS = {
     "test_translate_fault": dict(top="xdma_tb", random=True),
     "test_tlb_flush":       dict(top="xdma_tb", random=True),
     "test_soak":            dict(top="xdma_tb", random=True),
+    "test_abort_races":     dict(top="xdma_tb", random=True),
     # performance tests (spec 16); also regressions with pass thresholds
     "perf_latency":         dict(top="xdma_tb", random=False),
     "perf_saturate":        dict(top="xdma_tb", random=False),
