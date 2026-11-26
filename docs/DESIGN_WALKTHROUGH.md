@@ -1,8 +1,8 @@
 # XDMA design walkthrough
 
-A block-by-block tour of the XDMA RTL, written to prepare for an RTL design
-interview. Each block covers how it works, its key trade-off, the hardest bug
-or corner case, and three likely questions with short answers. Numbers come
+A block-by-block account of the XDMA RTL: the design rationale and trade-offs
+of each block. Each block covers how it works, its key trade-off, the hardest
+bug or corner case, and three likely questions with short answers. Numbers come
 from `results/RESULTS.md`, and every one of them can be regenerated with the
 command listed there.
 

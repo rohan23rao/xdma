@@ -1,13 +1,14 @@
 # Design decisions
 
-Decisions where the spec was silent or ambiguous, deviations from the spec,
-and root causes of every bug found by formal or by a failing seed.
-Numbered so the README and the RTL comments can refer to them.
+Design decisions and the bug log: every choice made where the spec was silent
+or ambiguous, every deviation from the spec, and every bug found, with its
+root cause and fix. Entries are numbered so the README and the RTL comments
+can refer to them.
 
 ## Bug stories (how each was found and why it matters)
 
-Short versions for interviews; the root cause and fix of each is in its
-B-/D- entry below.
+One line per bug: how it was found and why it matters. The root cause and
+fix of each is in its B-/D- entry below.
 
 | Bug | How it was found | Why it matters |
 |---|---|---|
