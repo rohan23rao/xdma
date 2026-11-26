@@ -48,6 +48,9 @@ def main():
     tests = a.tests.split(",") if a.tests else [t for t, v in run.TESTS.items()
                                                  if not t.startswith("perf_") and not v.get("gls")]
     params = run.parse_params(a.params)
+    if params and not a.tests:
+        # engine parameters only apply to tests of the full engine
+        tests = [t for t in tests if run.TESTS[t]["top"] == "xdma_tb"]
     # Build every configuration once, serially.
     for t in tests:
         run.build_for(t, params, cov=a.cov)
