@@ -24,6 +24,7 @@ B-/D- entry below.
 | **T-003** walker-error test expected one faulting page | `test_translate_fault` ERR_ADDR mismatch | A PTE read is an 8-byte word holding two PTEs, so an injected error faults both pages. The test, not the RTL, was wrong. |
 | **T-004** soak hang | `test_soak` timeouts on 3 seeds | cocotbext-axi leaves a sink paused when its pause generator is replaced (D-047). The hang was in the testbench, which the root-cause analysis proved before any RTL change. |
 | **T-005** deadlock showed up as a hang, not a failure | Re-running the old B-004 RTL | The S2MM driver blocked before the polling timeout. Every test now has a simulation-time limit, so a hang fails with the seed printed. |
+| **T-006** wrong MM2S data in one seed of 3400 | Sign-off regression (`test_translate_basic`, PREFETCH_EN=0, seed 27), then locating where the streamed value came from in memory | The hardware read the correct physical address. The testbench allocator, asked for a buffer just below a 4 KB boundary, could step back below the end of the previous allocation, so an S2MM destination overlapped an MM2S source. A rare stimulus bug can look exactly like a data-path bug; finding where the value came from separates the two before touching RTL. |
 
 ## Toolchain and flow
 

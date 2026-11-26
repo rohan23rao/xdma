@@ -24,9 +24,12 @@ class Allocator:
     def alloc(self, size, align=8, near_4k=False):
         a = (self.next + self.rng.randrange(0, 4096, 8) + align - 1) // align * align
         if near_4k:
-            # start within 128 B below a 4 KB boundary
-            a = (a // 4096 + 1) * 4096 - 8 * self.rng.randint(1, 16)
-            a = (a + align - 1) // align * align
+            # start within 128 B below a 4 KB boundary, never below the end
+            # of the previous allocation (that overlapped buffers: T-006)
+            b = (a // 4096 + 1) * 4096 - 8 * self.rng.randint(1, 16)
+            if b < self.next:
+                b += 4096
+            a = (b + align - 1) // align * align
         if a + size > self.hi:
             raise RuntimeError("allocator out of space")
         self.next = a + size + 64

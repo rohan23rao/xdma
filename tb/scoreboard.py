@@ -108,6 +108,15 @@ class ChannelJob:
                 fail(f"{tag}: {len(got)} stream beats, expected {len(exp.stream)}")
             for i, ((_, d, l), (ed, el)) in enumerate(zip(got, exp.stream)):
                 if d != ed or l != el:
+                    import os
+                    if os.environ.get("XDMA_DEBUG"):
+                        want = d.to_bytes(8, "little")
+                        hits = [pn * 4096 + off for pn, pg in env.mem.pages.items()
+                                for off in range(0, 4096, 8) if pg[off:off + 8] == want]
+                        env.dut._log.error(f"DEBUG chain={[(hex(a), hex(x.addr), x.line_bytes, x.lines, x.stride) for a, x in self.chain]} "
+                                           f"got data found at PA {[hex(h) for h in hits]}; "
+                                           f"xlat of line0: {self.xlat.translate(self.chain[0][1].addr, False) if self.xlat else None}; "
+                                           f"burst log ch{c}: {[(cy, hex(ad), nb) for cy, aid, ad, nb in env.axi.ar_log if aid == c][-6:]}")
                     fail(f"{tag}: beat {i}: data {d:#018x} tlast {l}, expected {ed:#018x} tlast {el}")
         else:
             for a, b in exp.writes.items():
