@@ -45,6 +45,7 @@ TESTS = {
     "perf_idle":            dict(top="xdma_tb", random=False),
     # gate-level simulation (zero delay) of the synthesized netlist
     "gls_loopback_copy":    dict(top="xdma_tb", random=True, module="test_loopback_copy", gls=True),
+    "gls_all_channels":     dict(top="xdma_tb", random=True, module="test_all_channels", gls=True),
 }
 
 GLS_NETLIST = os.environ.get("XDMA_GLS_NETLIST", str(ROOT / "syn" / "out" / "netlist_final_nocg.v"))
@@ -139,7 +140,7 @@ def run_one(test, seed, params=None, cov=False, waves=False, quiet=False, extra_
                    and k != "XDMA_PERF_OUT")
     tdir = bdir / "runs" / tag
     tdir.mkdir(parents=True, exist_ok=True)
-    env = {"XDMA_SEED": str(seed), "XDMA_PARAMS": ",".join(f"{k}={v}" for k, v in params.items())}
+    env = {"XDMA_SEED": str(seed), "XDMA_GLS_RUN": "1" if spec.get("gls") else "", "XDMA_PARAMS": ",".join(f"{k}={v}" for k, v in params.items())}
     env.update(extra_env or {})
     if cov:
         env["XDMA_COV_FILE"] = str(tdir / "func_cov.json")
