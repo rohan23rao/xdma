@@ -1,24 +1,23 @@
 # xdma_w_mux: WLAST on the correct beat, AWLEN+1 beats per burst, bursts in
-# AW order (no interleaving), no W before its AW. 2 MM2S + 2 S2MM, 4 writes
-# in flight, data sources unconstrained.
-# PDR did not converge within 10 minutes (D-004), so this target is a
-# bounded proof: no counterexample within 20 cycles (a full 16-beat burst
-# plus the bursts queued behind it). Solver time grows steeply with depth.
+# AW order (no interleaving), no W for an AW not yet accepted.
+# Reduced for tractability (D-004): 2 MM2S + 2 S2MM, 2 writes in flight,
+# bursts of 1..4 beats; data sources unconstrained. The same assertions
+# run at full size in every simulation.
 [tasks]
-bmc
+prove
 cover
 
 [options]
-bmc: mode bmc
-bmc: depth 20
+prove: mode prove
 cover: mode cover
 cover: depth 20
 
 [engines]
-smtbmc yices
+prove: abc pdr
+cover: smtbmc yices
 
 [script]
-read_slang -j 1 -D FORMAL -I. -G MAX_OUT_WR=4 --top xdma_w_mux xdma_pkg.sv xdma_fifo.sv xdma_skid.sv xdma_w_mux.sv xdma_w_mux_sva.sv xdma_fv_reset.sv bind_w_mux.sv
+read_slang -j 1 -D FORMAL -I. -G MAX_OUT_WR=2 --top xdma_w_mux xdma_pkg.sv xdma_fifo.sv xdma_skid.sv xdma_w_mux.sv xdma_w_mux_sva.sv xdma_fv_reset.sv bind_w_mux.sv
 prep -top xdma_w_mux
 
 [files]

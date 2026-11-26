@@ -31,8 +31,11 @@ Consequences:
 proofs and more on simulation-based verification. Targets that PDR or
 k-induction close in minutes are full proofs; a target that does not
 converge within about ten minutes runs as a bounded check (BMC) and is
-reported as "bounded, depth N", never as proven (w_mux: PDR still open after
-10 minutes, so BMC to depth 20).
+reported as "bounded, depth N", never as proven. Where a full-size proof
+does not converge, the target is reduced and the reduction is stated: w_mux
+(PDR open after 10 minutes and BMC stuck past depth 15 at 4 writes in flight
+with 16-beat bursts) is proven at 2 writes in flight with 1..4-beat bursts.
+The same assertions run at full size in every simulation.
 
 **D-002 Simulation assertions are disabled at time 0.**
 Verilator evaluates the model once at time 0, with randomized top-level
