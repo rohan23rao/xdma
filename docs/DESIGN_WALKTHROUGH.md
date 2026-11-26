@@ -1,0 +1,457 @@
+# XDMA design walkthrough
+
+A block-by-block tour of the XDMA RTL, written to prepare for an RTL design
+interview. Each block covers how it works, its key trade-off, the hardest bug
+or corner case, and three likely questions with short answers. Numbers come
+from `results/RESULTS.md`, and every one of them can be regenerated with the
+command listed there.
+
+```
+                 AXI4-Lite                                              irq
+                     |                                                   ^
+               +-----v------+   START/ABORT, DESC_HEAD, counters         |
+               |  xdma_csr  |----------------------------------------------+
+               +-----+------+
+                     | per channel
+     +---------------v----------------+        +-----------------------------+
+     | xdma_desc_fetch (x4)           |        | translation (shared)        |
+     |  FSM, prefetch shadow,         |        |  xdma_tlb  <---- xdma_ptw   |
+     |  validation, status writeback  |        |  8 entries      1 walk      |
+     +--+---------------+-------------+        +---^-------------------+-----+
+        | desc AR, WB AW| dp_start/run/drain        | lookups           | walker AR
+        |               v                           |                   |
+        |   +-----------------------+   +-----------+-----------+       |
+        |   | xdma_rd_chan (MM2S)x2 |   | xdma_wr_chan (S2MM)x2 |       |
+        |   | addr_gen -> xlat ->   |   | s_axis -> skid ->     |       |
+        |   | reserve -> AR         |   | FIFO; addr_gen ->     |       |
+        |   | R -> FIFO -> skid ->  |   | xlat -> AW when data  |       |
+        |   | m_axis                |   | is already in FIFO    |       |
+        |   +----+-------------^----+   +----+-------------+----+       |
+        |        | data AR     | R           | data AW     | W data     |
+     +--v--------v-------------+--+   +------v-----+  +----v-------+    |
+     | xdma_ar_arb                |<--+ walker     |  | xdma_w_mux |    |
+     | walker > desc > data (RR)  |   +------------+  | W-order Q  |    |
+     +-------------+--------------+   | xdma_aw_arb|  +----+-------+    |
+                   |                  | wb > data  |       |            |
+                   v                  +------+-----+       v            |
+                  AR                         AW            W     R, B (routed by ID)
+```
+
+---
+
+## 1. Address generator (`xdma_addr_gen`) and "bursts never cross a page"
+
+**How it works.** It turns a descriptor `{ADDR, LINE_BYTES, LINES, STRIDE}`
+into bursts, working in 8-byte beats. Each cycle it computes
+`beats = min(MAX_BURST, beats left in the line, beats left before the next
+4 KB boundary)`. It emits `{va, beats, last_of_desc}` on a valid/ready
+stream and advances either the line offset or, at the end of a line, the
+line start (`line_addr += STRIDE`). That last step is a running add, so no
+multiplier is needed. The output depends only on registers, so it stays
+stable while stalled.
+
+**Why bursts never cross 4 KB.** AXI4 forbids a burst from crossing a 4 KB
+boundary. The page size is also 4 KB, so the same cut gives a second
+property: every burst lies in exactly one page and needs exactly one
+translation. One cut solves both protocol legality and translation
+granularity.
+
+**Key trade-off.** It emits one burst per cycle, with a three-way `min()`
+and an adder on the output path. Registering the `min()` would shorten the
+path but add a cycle per burst. Since a 16-beat burst takes 16 cycles of
+data anyway, the combinational version costs nothing in throughput.
+Synthesis confirms it is not the critical path (section 10).
+
+**Hardest bug (found by formal, B-001).** The `min()` compared its operands
+at the line-length width plus one bit. `to_4k` can be 512, which truncated
+to 0 when the formal proof shrank LINE_BYTES to 9 bits, giving a 0-beat
+burst. At the default width the bug is latent, but the module is
+parameterized, so it is real. Lesson: compare at the width of the widest
+operand. Formal finds width bugs that random simulation at default
+parameters never reaches.
+
+**Likely questions**
+1. *How do you prove the splitter is correct?* With an independent
+   byte-based reference walk in the assertion module. Every burst must start
+   where the reference says, stay inside its line and its 4 KB page, and be
+   1..MAX_BURST beats long. `last` must fall on the final burst only, and the
+   total must equal LINE_BYTES × LINES / 8. Helper invariants tie the
+   design's counters to the reference, which makes the proof inductive; the
+   proof covers MAX_BURST 16 and 8.
+2. *What happens at address 0xFFFF_FFF8?* Addresses wrap at 2^32. The 4 KB
+   rule still splits correctly, because `to_4k` only looks at address bits
+   [11:3].
+3. *Why no multiplier for 2D?* Line starts form an arithmetic sequence, so
+   a running add of STRIDE gives each next line. Negative strides work
+   because the add is modulo 2^32.
+
+---
+
+## 2. MM2S data path (`xdma_rd_chan`) and reserve-on-issue
+
+**How it works.** Bursts flow from addr_gen through the translation stage
+to an AR request. The request is raised only when the FIFO has room for
+every beat already in flight plus this burst:
+`fifo_count + reserved + beats <= FIFO_DEPTH`, with fewer than MAX_OUT_CH
+bursts outstanding. On the AR grant, `reserved += beats`. Each R beat
+decrements `reserved` and is pushed into the FIFO. A small per-channel burst
+queue, in AR order (R data for one ID is in order), remembers each burst's
+address and whether it ends the descriptor, so the final beat can be tagged
+in the FIFO. When the tagged beat leaves on `m_axis`, the descriptor's data
+is done.
+
+**Why reserve-on-issue.** The R channel is shared by all channels.
+Responses for one ID cannot be refused without blocking every other ID
+behind them (head-of-line blocking). The only way to keep RREADY high
+always is to guarantee space before the request goes out. RREADY is a flop
+that goes to 1 after reset and stays there. An assertion checks that an R
+beat never finds a full FIFO.
+
+**Key trade-off: Little's-law FIFO sizing.** To sustain 8 B/cycle with
+memory latency L, about 8 × L bytes must be in flight. Under
+reserve-on-issue the FIFO itself must hold them, so FIFO size caps
+bandwidth. Measured (`make perf`, one MM2S channel, no throttling):
+
+| FIFO (beats) | L = 25 | L = 50 | L = 100 | L = 200 |
+|---|---|---|---|---|
+| 32 | 72.7% | 46.3% | 26.9% | 14.6% |
+| 64 (default) | 100% | 92.7% | 53.7% | 29.1% |
+| 128 | 100% | 100% | 100% | 58.5% |
+
+Every point fits `util = min(1, in_flight / (L + 19))`, where
+`in_flight = min(FIFO_DEPTH, 16 × MAX_OUT_CH)` beats. Examples: 64/69 =
+92.7%, 64/219 = 29.2%, 128/219 = 58.4%. The 19 extra cycles are the
+request pipeline (translation stage, arbiter, AR skid buffer), the R-to-FIFO
+path, and the beats of each 16-beat burst that hold reserved slots until
+the burst's last beat arrives. The spec's estimate of about 32% at L = 200
+ignores those 19 cycles; the measurement is 29%. The burst-length sweep
+shows reservation granularity directly: MAX_BURST 8 reaches 100% at L = 50,
+while 16 reaches 92.7%, because a 16-beat reservation needs 16 free slots
+at once.
+
+**Hardest corner case (review, B-006).** On an abort, the FIFO is cleared
+on the flush cycle's clock edge. In that same cycle the pop logic, which
+was gated only by `drain` (already low), moved one discarded beat into the
+output skid buffer, where it counted as live data. If that beat was the
+tagged final beat, it could even complete the next descriptor early. Fix:
+no pop in the flush cycle. Related: beats already sitting in the output
+skid cannot be withdrawn, because AXI-Stream VALID must stay high. They are
+delivered but marked stale and not counted (D-037).
+
+**Likely questions**
+1. *Why not just drop RREADY when the FIFO is full?* RREADY is shared by
+   every ID. One slow stream sink would stall descriptor fetches, page walks
+   and the other channel's data, which is head-of-line blocking across
+   unrelated traffic.
+2. *How big should the FIFO be?* At least bandwidth × round trip: 8 B ×
+   (L + ~19 cycles). At L = 50 that is about 550 B. The 512 B default gives
+   92.7%; 1 KB gives 100%. Halving MAX_BURST also helps, by reducing
+   reservation granularity.
+3. *How do you know when a descriptor is done?* A per-burst flag, recorded
+   when the AR is issued, marks the last beat of the descriptor in the FIFO.
+   When that tagged beat is handshaken on `m_axis`, the controller starts
+   the status writeback. No beat counter or multiplier is needed.
+
+---
+
+## 3. S2MM data path (`xdma_wr_chan`) and AW-after-data
+
+**How it works.** Stream beats pass through an input skid buffer, then
+per-beat checks (TKEEP all ones; TLAST exactly on the descriptor's last
+beat when EOP = 1, never otherwise), then the FIFO. A burst's AW is
+requested only when all of its beats are already in the FIFO and not
+promised to an earlier AW: `fifo_count - committed >= beats`. On the grant,
+`committed += beats`, and the W mux later pops exactly those beats
+(`committed -= 1` per beat). The descriptor is done when the B response of
+its final burst returns OKAY. B responses for one ID come back in order, so
+all earlier ones are back by then.
+
+**Why AW-after-data.** W data has no ID and must leave in AW order, so W is
+also shared and in order. If an AW went out before its data had arrived
+and the stream source then stalled, the W channel would block for every
+other channel and for status writebacks. Waiting until the data is
+already present makes every burst's W beats sendable back to back.
+
+**Key trade-off.** This adds store-and-forward latency of one burst per
+write, in exchange for a W channel that can never be blocked by a slow
+source. TREADY is driven only from registers (input-skid empty, descriptor
+beat budget, RUN, not draining, no error), so there is no combinational
+path from TVALID to TREADY.
+
+**Hardest corner case (review, B-007).** TREADY used to come from a
+registered "channel running" bit. That let the input skid accept up to two
+beats belonging to the next packet, which were silently lost if the
+descriptor then failed. Fix: count beats at the stream interface, so TREADY
+drops right after the descriptor's last beat is accepted.
+
+**Likely questions**
+1. *What if the source stops mid-descriptor?* Nothing goes on the bus for
+   beats that haven't arrived. Earlier complete bursts finish and their B
+   responses return; the channel simply waits, and no shared channel is
+   blocked.
+2. *How do you check stream length without a multiplier?* With two nested
+   down-counters (beats in the line, lines left). The last beat is the one
+   where both are 1.
+3. *What happens on a bad TKEEP?* The beat is not written, STREAM_LEN is
+   reported with ERR_ADDR = the descriptor, issued bursts complete, the FIFO
+   is flushed and the error status is written back. Nothing from the bad
+   beat onward reaches memory; `test_stream_len` checks this byte by byte.
+
+---
+
+## 4. W ordering (`xdma_w_mux`) and the AXI ID map
+
+**How it works.** Every AW the AW arbiter accepts pushes `{id, len}` into
+the W-order queue. The mux takes the head entry and streams exactly
+`len + 1` beats from the source the ID names (an S2MM FIFO, or a channel's
+one-beat writeback register), with WLAST on the final beat. W leaves
+through a skid buffer.
+
+**AXI ID map.**
+
+| ID | Use |
+|---|---|
+| 0..NUM_CH-1 | data bursts of channel c (AR for MM2S, AW for S2MM) |
+| NUM_CH..2·NUM_CH-1 | descriptor fetch (AR) and status writeback (AW) of channel c |
+| 2·NUM_CH | page-table walker (AR) |
+
+Reads with different IDs may complete out of order, while each ID is in
+order. Giving descriptor and walker traffic their own IDs means a 4-beat
+descriptor fetch never waits behind 16-beat data bursts of the same
+channel. R and B responses are routed by ID alone, with no lookup table.
+With 4 channels this is exactly the spec's map (4..7, 8).
+
+**Hardest bug (review, B-004): W waited for AWREADY.** The spec said to push
+the W-order queue "on AW handshake", and the first version used the bus
+handshake. AXI4 (A3.3.1) lets a slave wait for WVALID before raising
+AWREADY. Against such a slave, the master waited for AWREADY and the slave
+waited for WVALID: a deadlock. The memory model accepted AW independently,
+so no test saw it. Fix: push at arbiter acceptance (the AW skid buffer
+keeps the order). The memory model gained an `aw_wait_w` mode that waits
+for WVALID. With the old RTL that mode hangs the test (now a clean timeout
+failure); with the fix it passes.
+
+**Likely questions**
+1. *Why can't W beats interleave?* AXI4 removed WID, so the slave matches W
+   data to AWs purely by order. All beats of one burst must leave before any
+   beat of the next.
+2. *Can W go before AW?* Yes, AXI4 allows it, and a master must not wait for
+   AWREADY before WVALID. Here W can lead AW on the bus by up to the AW skid
+   depth.
+3. *Why one ID per channel for data and not more?* One ID keeps a channel's
+   responses in order, which the burst queues rely on (no reorder buffer).
+   More IDs per channel would only help if the memory reordered within a
+   channel, and that is a listed non-goal.
+
+---
+
+## 5. Arbitration (`xdma_ar_arb`, `xdma_aw_arb`, `xdma_rr_arb`)
+
+**How it works.** There is fixed priority between classes. For AR:
+walker > descriptor fetch > MM2S data; for AW: status writeback > S2MM
+data. Inside a class, a round-robin arbiter picks the first requester at
+or after a rotating pointer. The pointer moves past the winner only on a
+handshake. Engine-wide limits (MAX_OUT_RD, MAX_OUT_WR) are counted from
+the grant until RLAST or the B response.
+
+**Key trade-off.** Control traffic gets fixed priority because it is small
+and latency-critical: a page walk blocks a channel, and a descriptor fetch
+gates the next transfer. Data gets round-robin for fairness. Measured with
+all four channels saturating: the two MM2S channels split R bandwidth
+50.3% / 49.7%, and the two S2MM channels split W bandwidth exactly 50% / 50%.
+
+**Hardest corner case.** Starvation freedom has to hold even when the
+consumer stalls and requests come and go. The formal proof needed a helper
+invariant: for a waiting requester i, the distance from the pointer to i
+plus the handshakes it has already waited is at most N − 1. Every handshake
+that skips i moves the pointer strictly closer to it.
+
+**Likely questions**
+1. *Why advance the pointer only on a handshake?* If the grant is not
+   accepted, nothing happened. Moving the pointer anyway could rotate past
+   a requester and break the N-handshake bound.
+2. *Can fixed priority starve data?* In theory, if walker or descriptor
+   traffic never stopped. In practice each walk is two reads per page and
+   each fetch is one read per descriptor, so they are bursty and bounded.
+3. *How is the grant one-hot?* By construction (a single winner from the
+   scan), and an assertion plus the formal proof check it.
+
+---
+
+## 6. Channel controller (`xdma_desc_fetch`)
+
+**How it works.** The state machine is IDLE → FETCH → RUN → WB → WB_WAIT →
+(FETCH | IDLE), with DRAIN → EWB → EWB_WAIT → FINISH for errors and aborts.
+Every descriptor read (the first fetch and each prefetch) fills a one-entry
+shadow register; FETCH just waits for the shadow to be valid. Validation
+(alignment, nonzero lengths, NEXT alignment unless LAST) runs on the
+complete shadow entry. While RUN, the next descriptor is prefetched. DRAIN
+stops new requests, waits until the channel has nothing outstanding on any
+of its IDs, clears the FIFOs, writes the error status, and goes IDLE.
+
+**Key trade-off (owner decision, D-045).** The spec's state machine
+serializes RUN → WRITEBACK → next RUN. Prefetch removes the descriptor
+fetch latency, but the next descriptor's first read still waits for the
+writeback's B response. Measured at L = 50: the gap between descriptors is
+114 cycles with prefetch and 167 without, so prefetch saves one memory
+latency. A chain of 64 × 64 B descriptors reaches 6.5% utilization, versus
+71.6% for one 4 KB descriptor. Decoupling completion from execution would
+overlap the writeback with the next descriptor (FUTURE.md).
+
+**Hardest bugs.** The status BYTES field was one beat short (B-003): it was
+latched in the same cycle the last beat was counted. ABORT racing with
+completion (D-048): when both happen in the same cycle, completion now
+wins, so a finished descriptor is reported done before the channel stops.
+
+**Likely questions**
+1. *Why can't you cancel an AXI transaction on abort?* AXI has no cancel.
+   Every accepted AR/AW must see all its R beats or its B. So abort means:
+   stop issuing, drain what's outstanding, then discard.
+2. *Why does a descriptor fetch error get no writeback?* There is no valid
+   descriptor to write to. The address is known, but its contents couldn't
+   be read or are invalid. ERR_ADDR reports it instead.
+3. *What does prefetch buy?* One memory round trip per descriptor (167 →
+   114 cycles of gap at L = 50). It needs a shadow register and abort
+   handling for a prefetch that is still in flight (FINISH waits for it).
+
+---
+
+## 7. Translation: TLB (`xdma_tlb`), walker (`xdma_ptw`) and how they interact
+
+**How it works.** Each data path has a one-entry translation stage
+(`xdma_xlat_stage`). With TRANSLATE_EN = 0, PA = VA. With it on, the stage
+asks the shared 8-entry, fully associative TLB, one lookup per cycle
+through a round-robin arbiter, with the result registered. There are four
+possible answers:
+- **HIT:** entry found, permission OK.
+- **FAULT:** entry found, permission missing; no walk.
+- **WALK:** miss with the walker idle; a walk starts for this channel.
+- **RETRY:** miss with the walker busy; the channel looks up again when the
+  walker is free.
+
+The walker does two single-beat reads, the level-1 PTE then the leaf PTE,
+on the walker ID at top AR priority. On success it fills the TLB
+(round-robin replacement) and answers the waiting channel. On a fault, only
+that channel is told.
+
+**Interaction rules that keep it correct:**
+- *Hit-under-miss:* other channels keep hitting while a walk runs. A
+  second miss is not queued: it gets RETRY, so there is only ever one walk
+  and no queue to drain on abort.
+- *No duplicate entries:* a lookup that misses in the cycle a fill lands
+  gets RETRY, so the same page is never walked twice.
+- *Flush versus a walk in flight (B-008, second review):* a walk that sees
+  a TLB_FLUSH while running is marked stale. Its result is not cached and
+  its channel looks up again, and a lookup compared in the flush cycle
+  answers RETRY.
+- *Aborted channel:* a walker answer for a channel that has since aborted
+  is ignored, because the stage accepts walker answers only in its WALK
+  state. A new WALK state for that channel can only start after the old
+  walk finishes.
+
+**Key trade-off.** RETRY instead of a miss queue: simpler and abort-safe,
+at the cost of re-lookups while a walk runs. Measured at L = 50 on a 64 KB
+MM2S transfer: translation off 91.1%; on with linear access 77.0% (TLB hit
+rate 96.9%: 16 misses in 512 bursts); on with STRIDE = 4096 (a new page
+every 512 B line) 36.9% (hit rate 75%). Each page miss costs two memory
+round trips, and the one-entry stage limits a channel to one burst every
+three cycles while translating (FUTURE.md).
+
+**Hardest bug (B-008).** The realistic race is at level 1. The walker has
+already read the level-1 PTE when software repoints it at a new level-0
+table and flushes. The walker then reads the old level-0 table and cached
+the old physical page after the flush. `test_tlb_flush` builds exactly this
+race. With the fix disabled, the DMA reads the stale page; with it, the
+data comes from the new page.
+
+**Likely questions**
+1. *Why must a burst never cross a page with translation on?* Each burst
+   gets exactly one translation. A burst crossing into a page mapped to an
+   unrelated physical page would write the wrong memory.
+2. *Why does a walker PTE read fault two pages?* A PTE read is one aligned
+   8-byte word that holds two adjacent 4-byte PTEs. An SLVERR on it faults
+   both pages that share the word (`test_translate_fault` accounts for this).
+3. *Why is a permission fault on a hit not a walk?* The TLB entry records
+   the leaf's R and W bits, and a walk would read the same PTE again. The
+   test checks that no walker read touches that page's PTE.
+
+---
+
+## 8. CSRs (`xdma_csr`)
+
+**How it works.** This is an AXI4-Lite slave. AW and W are captured
+independently, and the write happens once both are held and no B is
+pending. Registers are decoded on the word address (AxADDR[11:2]), and
+WSTRB selects the byte lanes. START is a write-1-to-set pulse, accepted
+only when EN = 1 (the value being written in the same access counts) and
+the channel is idle. It clears ERR and the channel counters. IRQ_STATUS is
+write-1-to-clear, with set winning over clear in the same cycle, and
+`irq = |(IRQ_STATUS & IRQ_MASK)`.
+
+**Hardest bugs.** Sub-word writes were ignored (B-002): a byte write puts
+the byte's address on AWADDR, which matched no register. The other was a
+helper function that read module-level signals instead of taking them as
+arguments (B-005). Verilator evaluated it correctly, but an event-driven
+simulator would not re-run the continuous assignment when those signals
+changed, so RTL and gates could disagree. That one was found by review,
+not by any test.
+
+**Likely questions**
+1. *Why decode on the word address?* AXI4-Lite allows unaligned AxADDR with
+   WSTRB selecting the lanes. Bits [1:0] carry no register information.
+2. *Why is START a pulse register and not a level?* So a single write
+   starts exactly one run. The busy check uses the registered pulse, so
+   there is no race with the controller.
+3. *What does STALL_CYC count?* Cycles while BUSY with a request not
+   granted, a burst blocked on FIFO space, or stream backpressure. It does
+   not count waiting for the outstanding limit or for translation (D-031).
+
+---
+
+## 9. Building blocks: FIFO and skid buffer
+
+**FIFO.** Flop-based, show-ahead (`dout` is the head entry
+combinationally), with a count output and a synchronous `clr`. Proven
+formally at depths 4 and 5: count, flags, pointer gap, and data order via
+the tracked-entry technique (follow one arbitrary pushed entry; it must
+reach the head unchanged).
+
+**Skid buffer.** Two entries. `s_ready = !skid_valid` and `m_valid` come
+straight from flops, so there is no combinational READY → VALID path. That
+is the AXI rule this engine relies on for every master output. Proven:
+output stable while stalled, conservation (beats in − beats out =
+occupancy), order. Full throughput with no bubble.
+
+**Area reality.** The four 64-beat data FIFOs dominate the area (see
+RESULTS.md). A real implementation would use SRAM macros. The critical
+path after synthesis starts at an addr_gen register and ends inside
+addr_gen (section 10), while the FIFO read mux was the worst path until
+ABC was allowed to buffer the read-pointer fanout.
+
+---
+
+## 10. Synthesis and timing (Yosys + OpenSTA, ASAP7, post-synthesis)
+
+The full numbers (Fmax, area per block, FIFO share, power with and without
+clock gating, top-10 paths) are in `results/RESULTS.md`, produced by
+`make syn`. The most instructive problem was fanout. The first Yosys
+netlist failed by more than 5 ns at 1 GHz. The reason: the FIFO read
+pointer drove a 64:1 mux across 66 bits (about 670 fF) and plain ABC
+mapping inserts no buffers. Adding ABC's buffer, upsize and downsize steps
+(the same steps OpenROAD-flow-scripts uses for ASAP7) fixed it. The
+remaining critical path at 950 ps is inside addr_gen: line offset, then
+address add, then the 4 KB distance, then the three-way `min()`, then the
+next offset register. That is the path spec 17.3 predicted.
+
+**Likely questions**
+1. *How would you raise Fmax?* Register the burst length out of addr_gen,
+   which costs one cycle per burst and nothing in throughput for bursts of
+   2 or more beats. Then pipeline the FIFO read with SRAM-style registered
+   outputs.
+2. *Why do flops dominate power?* Without clock gating every flop burns
+   clock-pin power each cycle, and about half the area is sequential. The
+   enable-style coding lets synthesis insert ICGs; RESULTS.md shows the
+   difference.
+3. *Post-synthesis versus post-route?* These numbers have ideal clocks and
+   no wire parasitics. Expect post-route Fmax to drop once clock skew and
+   wire RC are included.

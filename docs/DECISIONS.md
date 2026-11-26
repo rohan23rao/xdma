@@ -4,6 +4,27 @@ Decisions where the spec was silent or ambiguous, deviations from the spec,
 and root causes of every bug found by formal or by a failing seed.
 Numbered so the README and the RTL comments can refer to them.
 
+## Bug stories (how each was found and why it matters)
+
+Short versions for interviews; the root cause and fix of each is in its
+B-/D- entry below.
+
+| Bug | How it was found | Why it matters |
+|---|---|---|
+| **B-001** addr_gen `min()` truncated the 4 KB limit | Formal: the 1..MAX_BURST assertion failed in the base case when the proof shrank LINE_BYTES to 9 bits | A width bug that random simulation at default widths can never hit. Reducing widths for tractability also changes which bugs exist; compare at the widest operand's width. |
+| **B-002** CSR ignored sub-word writes | `test_csr` byte-strobe check: cocotbext-axi put the byte address (0x016) on AWADDR | AXI4-Lite allows unaligned AxADDR with WSTRB. A CSR that only decodes aligned addresses works with most drivers and fails silently with others. |
+| **B-003** status BYTES one beat short | `test_mm2s_1d` scoreboard compared the written-back status word | An off-by-one-cycle capture (the counter updates in the same cycle as `done`). It's the classic "sample one cycle later" bug, and only an end-to-end check of software-visible state catches it. |
+| **B-004** W waited for AWREADY (AXI4 deadlock) | Independent review against the spec, then confirmed with a new memory-model mode (AWREADY waits for WVALID): old RTL hangs, fixed RTL passes | Following the spec's wording ("push on AW handshake") produced a protocol violation the testbench could not see, because the memory accepted AW on its own. Lesson: model the strictest legal slave, not a friendly one. |
+| **B-005** CSR helper function read module-level signals | Independent review (Verilator masks it) | A simulation/synthesis mismatch waiting for the first event-driven RTL sim (VCS). Functions should take all inputs as arguments; reviewers catch what one simulator cannot. |
+| **B-006** discarded beat leaked after a drain | Independent review, by tracing the flush cycle | A one-cycle window where `drain` was already low but the FIFO had not yet cleared. It could also complete the *next* descriptor early. Corner cases live at state-transition edges. |
+| **B-007** S2MM accepted beats past its descriptor | Independent review | Registered TREADY looked safe (no combinational path) but over-accepted, and those beats were lost if the descriptor then failed. Count at the interface you are controlling. |
+| **B-008** TLB flush undone by an in-flight walk | Second independent review; reproduced by a directed race test (repoint the level-1 PTE mid-walk, then flush) | Cache coherence across a flush: any in-flight fill must be invalidated too. Without the fix the DMA silently read a page software had unmapped, which is a memory-safety bug. |
+| **T-001** time-0 assertion failures | First Verilator runs: assertions fired at t = 0 on randomized power-up state | Verilator evaluates once before cocotb can drive reset. Checks must be off until reset is applied (D-002). |
+| **T-002** loopback over-counted stream beats | `test_loopback_copy` beat count mismatch | The monitor sampled the sink's TREADY, but in loopback the real ready came from the S2MM port. A monitor must observe the handshake that actually happens. |
+| **T-003** walker-error test expected one faulting page | `test_translate_fault` ERR_ADDR mismatch | A PTE read is an 8-byte word holding two PTEs, so an injected error faults both pages. The test, not the RTL, was wrong. |
+| **T-004** soak hang | `test_soak` timeouts on 3 seeds | cocotbext-axi leaves a sink paused when its pause generator is replaced (D-047). The hang was in the testbench, which the root-cause analysis proved before any RTL change. |
+| **T-005** deadlock showed up as a hang, not a failure | Re-running the old B-004 RTL | The S2MM driver blocked before the polling timeout. Every test now has a simulation-time limit, so a hang fails with the seed printed. |
+
 ## Toolchain and flow
 
 **D-001 Open-source flow instead of VCS / JasperGold / DC / PT.**

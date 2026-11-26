@@ -1,9 +1,8 @@
 # XDMA: Multi-Channel Scatter-Gather DMA Engine — Implementation Spec
 
-Audience: an engineer or coding agent (e.g. Claude Code) implementing, verifying and synthesizing this design end to end.
-Owner: Rohan Rao. Status: v1 spec, 2026-11-25.
+Owner: Rohan Rao. Status: v1.1, 2026-11-26 (changes from v1 are listed in the changelog at the end).
 
-Read the whole document before writing code. Where this spec is silent, choose the simplest correct option and record the decision in `docs/DECISIONS.md`. Never fabricate a result: every number in `results/RESULTS.md` must come from a script in this repo that anyone can re-run.
+This document is the requirement for the design in this repository. Where it is silent, the simplest correct option was chosen and recorded in `docs/DECISIONS.md`. Every number in `results/RESULTS.md` comes from a script in this repo that anyone can re-run.
 
 ---
 
@@ -18,6 +17,18 @@ XDMA moves data between AXI4 memory and AXI4-Stream ports, driven by linked list
 - **Address translation:** optional per engine. 8-entry fully associative TLB, two-level page-table walker (Sv32-style, 4 KB pages).
 - **Control:** AXI4-Lite CSRs, one level-sensitive interrupt.
 
+```mermaid
+flowchart LR
+  sw[Software] -- AXI4-Lite --> csr[CSRs + IRQ]
+  csr --> ch[4 channels<br/>2 MM2S + 2 S2MM]
+  ch <--> xl[TLB + page-table walker]
+  ch -- AR/AW/W --> arb[Arbiters + W-order queue]
+  xl -- PTE reads --> arb
+  arb <--> mem[(AXI4 memory)]
+  ch -- AXI-Stream out --> sink([MM2S consumers])
+  src([S2MM producers]) -- AXI-Stream in --> ch
+```
+
 ### Explicit non-goals (do not implement)
 
 Real-time QoS, weighted arbitration, unaligned addresses or lengths, byte-granular lengths, megapages/superpages, multiple outstanding page walks, multiple AXI IDs per channel for data, a reorder buffer, multiple clock domains, data-width conversion, compression, tiled formats, interrupt coalescing. If tempted, add it to `docs/FUTURE.md` instead.
@@ -28,58 +39,52 @@ Real-time QoS, weighted arbitration, unaligned addresses or lengths, byte-granul
 
 ### 2.1 Toolchain
 
-Primary tools are the commercial ones available through the university license (Synopsys and Cadence). Run everything on the machine that has them, after loading the site's tool modules.
+The design was built and verified with an open-source flow (the commercial flow in v1 was not available; see the changelog):
 
 | Purpose | Tool |
 |---|---|
-| Simulation | Synopsys VCS (`-sverilog`, full SVA enabled), waves in Verdi (FSDB) |
-| Testbench | cocotb with `SIM=vcs` (Python models and tests) |
-| Lint | Spyglass lint if licensed, else VCS `+lint=all` plus Verilator `--lint-only -Wall` (free, fast, catches different issues) |
-| Formal | Cadence JasperGold FPV (full concurrent SVA). Use the Jasper AXI4 ABVIP if licensed; otherwise our own AXI properties |
-| Synthesis | Synopsys Design Compiler (topographical off), ASAP7 standard cells |
-| Timing and power | Synopsys PrimeTime; PrimeTime PX for power with SAIF from VCS |
-| Place and route (optional) | Cadence Innovus with the ASAP7 Innovus collateral, for post-route numbers |
+| Simulation | Verilator (assertions enabled), FST waves |
+| Testbench | cocotb (Python models and tests); cocotbext-axi for the AXI4-Lite master and stream sinks |
+| Lint | Verilator `--lint-only -Wall` with justified waivers, plus a full elaboration by slang (through Yosys) |
+| Formal | SymbiYosys: yosys-slang front end, Yices k-induction / BMC, ABC PDR |
+| Synthesis | Yosys (ABC mapping with buffering and sizing) onto ASAP7 RVT, typical corner |
+| Timing and power | OpenSTA; activity from simulation as SAIF |
 
-Licensing rules: use only university licenses, never an employer's. Commit scripts and summarized reports, never tool binaries, license files or vendor-licensed libraries. ASAP7 (open PDK) collateral is fetched by a script, not committed.
-
-Because outsiders cannot rerun commercial tools, also keep a free path for the simulation regression: the cocotb tests must run on Verilator too (`SIM=verilator`) so the public repo is reproducible. Formal and synthesis numbers come from the commercial tools.
+The RTL stays within constructs Synopsys Design Compiler, VCS and JasperGold accept, so the same sources can be run through a commercial flow. ASAP7 collateral is fetched by a script, never committed.
 
 ### 2.2 Repo layout
 
 ```
 xdma/
   rtl/                 SystemVerilog sources (section 13)
-  sva/                 assertion modules + bind files (used by VCS and JasperGold)
-  tb/                  cocotb tests, Python models, Makefile
+  sva/                 assertion modules + bind file (simulation and formal)
+  tb/                  cocotb tests, runner, regression, scoreboard
     models/            ref_model.py, axi_mem.py, page_table.py, desc_builder.py
-    test_*.py
-  formal/jg/           JasperGold Tcl scripts, one per proof target
-  syn/
-    lib/               script to fetch ASAP7 and build .db files from .lib (lc_shell)
-    dc/                Design Compiler scripts, constraints (xdma.sdc)
-    pt/                PrimeTime timing and PX power scripts
-    innovus/           optional P&R scripts
-  perf/                performance sweep scripts, CSV outputs, plots
-  results/RESULTS.md   final numbers table (section 18)
-  docs/                DECISIONS.md, FUTURE.md, block diagram
+    hdl/               simulation wrapper (xdma_tb)
+  formal/sby/          one SymbiYosys file per proof target
+  syn/yosys/           ASAP7 fetch, Yosys synthesis, OpenSTA timing and power
+  syn/gls/             cell models for gate-level simulation
+  perf/                performance sweep driver
+  results/RESULTS.md   final numbers (section 18), plots
+  docs/                ENV, PROGRESS, DECISIONS, FUTURE, DESIGN_WALKTHROUGH
+  tools/               setup, environment, lint, results generator
   Makefile             top-level targets (below)
   README.md
 ```
 
-Top-level make targets, each must work from a clean checkout:
+Top-level make targets, each runs from a clean checkout after `source tools/env.sh`:
 
 | Target | Does |
 |---|---|
-| `make lint` | Spyglass or VCS lint, plus Verilator `-Wall`; zero warnings or a justified waiver file |
-| `make sim` | Full cocotb regression on VCS (`SIM=verilator` also supported) |
-| `make sim TEST=<name> SEED=<n> WAVES=1` | One test, reproducible, with FSDB waves for Verdi |
-| `make regress SEEDS=200` | All random tests across N seeds |
-| `make cov` | VCS code + assertion coverage report (URG), plus cocotb functional coverage |
-| `make formal` | All JasperGold proofs; summary of proven/CEX/undetermined |
-| `make syn` | Design Compiler synthesis on ASAP7 + PrimeTime timing and PX power |
-| `make pnr` | Optional Innovus place and route + post-route PrimeTime |
-| `make perf` | Performance sweeps, CSVs and PNG plots into `perf/out/` |
-| `make results` | Regenerates `results/RESULTS.md` from the above outputs |
+| `make lint` | Verilator `-Wall` and slang; zero warnings outside the justified waiver file |
+| `make sim` | every cocotb test once; `TEST=<name> SEED=<n> WAVES=1` for one test with waves |
+| `make regress SEEDS=200` | all random tests across N seeds |
+| `make cov` | line, toggle and assertion-cover coverage plus functional coverage |
+| `make formal` | all proofs; summary of proven / bounded / failed |
+| `make syn` | synthesis on ASAP7, clock sweep, area, timing and power |
+| `make gls` | gate-level simulation of `test_loopback_copy` on the netlist |
+| `make perf` | performance sweeps, CSVs and PNG plots into `perf/out/` |
+| `make results` | regenerates `results/RESULTS.md` from the above outputs |
 
 ---
 
@@ -190,11 +195,17 @@ START is ignored unless EN = 1 and the channel is idle. Starting a channel clear
 
 ### 7.1 Channel state machine
 
-```
-IDLE --START--> FETCH --desc valid--> RUN --all data done--> WRITEBACK --LAST--> IDLE (DONE irq if CTRL.IRQ)
-                  |                     |                         \--!LAST--> FETCH (next = NEXT)
-                  |                     +--error/abort--> DRAIN --outstanding == 0--> IDLE (ERR set)
-                  +--fetch error/invalid--> IDLE (ERR set)
+```mermaid
+stateDiagram-v2
+  [*] --> IDLE
+  IDLE --> FETCH: START (EN = 1)
+  FETCH --> RUN: descriptor valid
+  FETCH --> IDLE: fetch error / invalid (ERR set, no writeback)
+  RUN --> WRITEBACK: all data done
+  RUN --> DRAIN: error / ABORT
+  WRITEBACK --> FETCH: !LAST (next = NEXT; usually already prefetched)
+  WRITEBACK --> IDLE: LAST (DONE irq if CTRL.IRQ)
+  DRAIN --> IDLE: outstanding == 0, error status written back (ERR set)
 ```
 
 - **FETCH:** one AR for 32 bytes (4 beats, ARLEN = 3) at the descriptor address, using the channel's descriptor ID (section 9.1).
@@ -238,11 +249,24 @@ Why reserve-on-issue: R data for one ID cannot be refused without stalling the s
 
 1. `s_axis` → channel FIFO (TREADY = FIFO not full and channel in RUN and not in error). Check TKEEP all ones and TLAST rules; violations raise STREAM_LEN.
 2. Burst from addr_gen → translation → physical burst request.
-3. **Issue AW only when the data is already there:** present AW only if `fifo_count - committed >= beats` and outstanding `< MAX_OUT_CH`. On AW handshake, `committed += beats` and push `{channel, beats}` into the engine-wide W-order queue.
+3. **Issue AW only when the data is already there:** present AW only if `fifo_count - committed >= beats` and outstanding `< MAX_OUT_CH`. When the AW arbiter accepts the request, `committed += beats` and `{channel, beats}` is pushed into the engine-wide W-order queue. (Pushing at acceptance, not at the bus AW handshake, matters: AXI4 forbids a master from waiting for AWREADY before asserting WVALID.)
 4. The W mux (`xdma_w_mux`) pops the head of the W-order queue and streams exactly `beats` beats from that channel's FIFO, WLAST on the final one, then `committed -= beats`. AXI4 forbids write-data interleaving, so W beats leave in AW order.
 5. Count B responses per descriptor; the descriptor completes when all its B responses are back.
 
 Why AW-after-data: if AW went first and stream data stalled, the W channel would be blocked for every other channel. Document this too.
+
+```mermaid
+flowchart LR
+  subgraph MM2S[MM2S: reserve-on-issue]
+    a1[addr_gen] --> x1[xlat] --> r1{FIFO room for<br/>all beats in flight?} -- yes --> AR
+    R --> f1[FIFO] --> s1[skid] --> o1([m_axis])
+  end
+  subgraph S2MM[S2MM: AW-after-data]
+    i2([s_axis]) --> s2[skid] --> f2[FIFO]
+    a2[addr_gen] --> x2[xlat] --> r2{all beats of the<br/>burst in FIFO?} -- yes --> AW
+    f2 --> W
+  end
+```
 
 ---
 
@@ -274,6 +298,33 @@ Why AW-after-data: if AW went first and stream data stalled, the W channel would
 
 When TRANSLATE_EN = 0, translation is a 0-cycle bypass (PA = VA).
 
+A TLB_FLUSH must also cancel any walk in flight: a walk that saw a flush does not fill the TLB and its channel looks up again; a lookup compared in the flush cycle does not hit.
+
+```mermaid
+sequenceDiagram
+  participant C as channel (xlat stage)
+  participant T as TLB
+  participant W as walker
+  participant M as memory
+  C->>T: lookup VPN (round-robin, 1 per cycle)
+  alt hit, permission OK
+    T-->>C: HIT, PPN
+  else hit, permission missing
+    T-->>C: FAULT
+  else miss, walker idle
+    T-->>C: WALK
+    T->>W: start(VPN, channel)
+    W->>M: read L1 PTE (walker ID, top AR priority)
+    M-->>W: PTE1
+    W->>M: read L0 PTE
+    M-->>W: PTE0
+    W->>T: fill (unless a flush happened meanwhile)
+    W-->>C: PPN or fault
+  else miss, walker busy
+    T-->>C: RETRY (look up again when the walker is free)
+  end
+```
+
 ---
 
 ## 9. Arbitration and AXI IDs
@@ -283,8 +334,10 @@ When TRANSLATE_EN = 0, translation is a 0-cycle bypass (PA = VA).
 | ID | Use |
 |---|---|
 | 0..NUM_CH-1 | Data bursts of channel c (AR for MM2S, AW for S2MM) |
-| 4..4+NUM_CH-1 | Descriptor fetch (AR) and status writeback (AW) of channel c |
-| 8 | Page-table walker (AR) |
+| NUM_CH..2·NUM_CH-1 (4..7 at defaults) | Descriptor fetch (AR) and status writeback (AW) of channel c |
+| 2·NUM_CH (8 at defaults) | Page-table walker (AR) |
+
+ID_W must hold 2·NUM_CH.
 
 Separate IDs keep descriptor and walker reads from queuing behind data on the same ID. Route R and B responses by ID.
 
@@ -430,9 +483,9 @@ All directed tests pass; `make regress SEEDS=200` passes; all coverage bins hit;
 
 ---
 
-## 15. Formal verification (JasperGold FPV)
+## 15. Formal verification
 
-One Tcl script per target in `formal/jg/`, run in batch mode. Constrain inputs with `assume property` (e.g. AXI slave-side rules for responses). Every target also has cover properties showing the interesting behavior is reachable, so a proof is not vacuous.
+One SymbiYosys file per target in `formal/sby/`, run in batch mode by `make formal`. Constrain inputs with `assume property` (e.g. AXI slave-side rules for responses). Every target also has cover properties showing the interesting behavior is reachable, so a proof is not vacuous.
 
 | Target | Properties | Goal |
 |---|---|---|
@@ -441,7 +494,7 @@ One Tcl script per target in `formal/jg/`, run in batch mode. Constrain inputs w
 | `xdma_fifo` | No overflow/underflow; count correct; data order preserved (tracked-entry technique) | Full proof |
 | `xdma_skid` | Output VALID/payload stable until READY; no data loss or duplication | Full proof |
 | `xdma_w_mux` | WLAST on the correct beat; no interleaving; beats per burst = queued length | Full proof |
-| `xdma_top` AXI master interface (with ABVIP if available) | AXI4 master protocol compliance on all five channels; no 4 KB crossing; outstanding limits | Prove what converges; report bounded depth for the rest |
+| `xdma_top` AXI master interface | AXI4 master protocol compliance on all five channels; no 4 KB crossing; outstanding limits | Checked by the bound assertions in every simulation (sva/xdma_top_sva.sv); prove what converges |
 
 Report each target's result (proven / bounded to depth N / CEX) in `results/RESULTS.md`. A CEX is a bug to fix, not a property to weaken; if a property was wrong, record why in DECISIONS.md.
 
@@ -469,21 +522,17 @@ Expected behavior to check against (Little's law): with 8 B/cycle and memory lat
 
 ### 17.1 Libraries
 
-`syn/lib/fetch_asap7.sh` downloads the ASAP7 standard-cell collateral (RVT, typical corner, NLDM .lib; also LEF/QRC if running Innovus). ASAP7 libraries are in picoseconds and may need unit and naming checks; convert .lib to .db with Library Compiler (`lc_shell`) and record any fixes made. Use RVT cells only unless a later experiment says otherwise.
+`syn/yosys/fetch_asap7.sh` fetches the ASAP7 7.5-track standard-cell collateral (RVT, typical corner, NLDM liberty, and the cell Verilog models for gate-level simulation) from OpenROAD-flow-scripts at a pinned commit. Nothing vendor-licensed is committed.
 
-### 17.2 Design Compiler + PrimeTime (`make syn`)
+### 17.2 Synthesis, timing and power (`make syn`)
 
-- `syn/dc/xdma.sdc`: clock on `clk`, start at 1000 ps (1 GHz); input/output delays 20% of the period; reasonable input transition and output load from the library.
-- `compile_ultra` with clock gating inference enabled (`-gate_clock`), no boundary-optimization tricks that hide hierarchy (keep hierarchy so area can be reported per block).
-- Sweep the clock period down in 50 ps steps; report the fastest period with WNS ≥ 0 in PrimeTime.
-- PrimeTime: timing at the final period (report top 10 paths with explanations); PX power at the target clock using a SAIF from VCS running `perf_saturate`, plus idle power. Report internal, switching and leakage separately.
-- Report area per top-level block (`report_area -hierarchy`) and the FIFOs' share.
-- Run once with clock gating inference off to report the power difference.
-- Write a gate-level netlist and run a short gate-level simulation of `test_loopback_copy` in VCS (zero-delay) to catch synthesis/simulation mismatches.
-
-### 17.3 Innovus (optional, `make pnr`)
-
-If the ASAP7 Innovus collateral works on the machine: floorplan at ~60% utilization, place, CTS, route, then PrimeTime on the routed netlist with extracted parasitics. If it works, these become the headline numbers (state clearly whether resume numbers are post-synthesis or post-route).
+- Yosys with the yosys-slang front end, hierarchy kept so area can be reported per block; ABC maps to ASAP7 and buffers and sizes gates (the steps OpenROAD-flow-scripts uses for ASAP7).
+- OpenSTA: clock on `clk`; input/output delays 20% of the period; BUFx2 input drive; 4 × BUFx2 output load.
+- Sweep the clock period down from 1000 ps in 50 ps steps, re-synthesizing at each period; report the fastest period with WNS ≥ 0 and the top 10 paths at that period.
+- Report area per top-level block and the FIFOs' share.
+- Power at the target clock with activity from simulation (SAIF from `perf_saturate`, and from an idle run). Report internal, switching and leakage separately. Run with clock-gating inference on (Yosys `clockgate`, ASAP7 ICG cells) and off.
+- Gate-level simulation of `test_loopback_copy` on the netlist (zero delay) to catch synthesis/simulation mismatches (`make gls`).
+- All numbers are labelled "Yosys + OpenSTA, ASAP7, post-synthesis".
 
 ### 17.3 Timing expectations
 
@@ -502,9 +551,9 @@ Generated by `make results`. Must contain, with the command that produced each n
 | Bandwidth utilization at latency 50, defaults | % | perf |
 | Bandwidth utilization at latency 200, FIFO 128 | % | perf |
 | TLB hit rate, linear 64 KB transfer | % | perf |
-| Achieved clock (ASAP7; say post-synthesis or post-route) | GHz | PrimeTime |
-| Standard-cell area | µm² | Design Compiler / Innovus |
-| Total power at target clock | mW | PrimeTime PX |
+| Achieved clock (ASAP7, post-synthesis) | GHz | OpenSTA |
+| Standard-cell area | µm² | Yosys |
+| Total power at target clock | mW | OpenSTA |
 | Regression | tests × seeds, pass/fail | sim |
 | Formal | proofs passing / total, depth | formal |
 | Coverage | bins hit / total | sim |
@@ -527,11 +576,27 @@ Each step ends with its tests passing before moving on.
 8. TLB + walker; translation tests; `test_soak`.
 9. Coverage closure; parameter-variant regression.
 10. Performance sweeps and plots.
-11. Lint, Design Compiler + PrimeTime runs, timing fixes, gate-level sim; Innovus if collateral works.
-12. RESULTS.md, README with block diagram, DECISIONS.md, FUTURE.md.
+11. Lint, Yosys + OpenSTA runs, timing fixes, gate-level sim.
+12. RESULTS.md, README with block diagram, DECISIONS.md, FUTURE.md, DESIGN_WALKTHROUGH.md.
+
+The steps were run in the order 1-8, 10, 11, 12, 9 (owner decision), so that bandwidth, clock, area and power were measured before coverage closure.
 
 ---
 
 ## 20. README requirements
 
 Block diagram; feature list; how to run every make target; results table; the plots; a "design decisions" section covering reserve-on-issue, AW-after-data, ID map, why bursts never span pages, and Little's-law FIFO sizing; known limitations (link FUTURE.md).
+
+---
+
+## Changelog
+
+**v1.1 (2026-11-26)**, changes from v1, each decided by the owner or forced by a review finding (details in `docs/DECISIONS.md`):
+
+- Toolchain (2.1, 2.2, 15, 17): the commercial flow (VCS, Verdi, JasperGold, Design Compiler, PrimeTime, Innovus) was not available; the open-source flow above replaces it (D-001). Synthesis numbers are post-synthesis, no place and route. Formal effort is bounded where proofs do not converge (D-004).
+- Prefetch requirement (7.1): "no bubble beyond writeback latency" contradicted the state machine; now "prefetch hides descriptor fetch latency; the remaining gap is measured and reported" (D-045).
+- W-order queue push point (7.4 step 3): at AW acceptance, not at the bus AW handshake, so W never waits for AWREADY (AXI4 A3.3.1; B-004).
+- AXI ID map (9.1): written as a function of NUM_CH; identical to v1 at the default NUM_CH = 4 (D-036).
+- TLB flush (8): a flush also cancels a walk in flight (B-008).
+- Diagrams added (1, 7.1, 7.4, 8).
+- Implementation order (19): steps run as 1-8, 10, 11, 12, 9.

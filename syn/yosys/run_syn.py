@@ -189,7 +189,7 @@ def activity():
     perf_saturate (all four channels saturating) and perf_idle, rewritten so
     instance names match the Yosys netlist."""
     acts = {}
-    for kind, test, extra in (("active", "perf_saturate", {"XDMA_PERF_TOTAL": "16384"}),
+    for kind, test, extra in (("active", "perf_saturate", {}),
                               ("idle", "perf_idle", {})):
         raw, flat = OUT / f"{kind}_raw.saif", OUT / f"{kind}.saif"
         env = dict(os.environ, XDMA_SAIF=str(raw), **extra)
