@@ -422,7 +422,7 @@ is the AXI rule this engine relies on for every master output. Proven:
 output stable while stalled, conservation (beats in − beats out =
 occupancy), order. Full throughput with no bubble.
 
-**Area reality.** The FIFOs are 77% of the 17,018 µm² standard-cell area,
+**Area reality.** The FIFOs are 77% of the 17,025 µm² standard-cell area,
 almost all of it the four 64 × 64-66-bit data FIFOs built from flops. A
 real implementation would use SRAM macros. The FIFO read mux was the worst
 path until ABC was allowed to buffer the read-pointer fanout; after that,
@@ -433,10 +433,10 @@ the critical path is in addr_gen (section 10).
 ## 10. Synthesis and timing (Yosys + OpenSTA, ASAP7, post-synthesis)
 
 Results (`make syn`, details in `results/RESULTS.md`): **1.0 GHz** (1000 ps
-passes with +46 ps of slack; 950 ps fails by 3.9 ps), **17,018 µm²** without
-clock gating and 12,771 µm² with it. The FIFOs are **77%** of the area.
-Power with all four channels saturating is 37.9 mW without clock gating
-and 8.7 mW with it. Idle power is 29.3 mW without clock gating and 2.0 mW
+passes with +46 ps of slack; 950 ps fails by 3.9 ps), **17,025 µm²** without
+clock gating and 12,776 µm² with it. The FIFOs are **77%** of the area.
+Power with all four channels saturating is 38.0 mW without clock gating
+and 8.7 mW with it. Idle power is 29.4 mW without clock gating and 2.2 mW
 with it.
 
 Two findings are instructive.
@@ -465,7 +465,7 @@ Two findings are instructive.
    clock-pin power every cycle, busy or not. That is why idle power (29 mW)
    is close to active power (38 mW). With ICGs, a FIFO entry's flops clock
    only when that entry is written: active power falls to 8.7 mW and idle
-   power to 2 mW.
+   power to 2.2 mW.
 3. *Post-synthesis versus post-route?* These numbers have ideal clocks and
    no wire parasitics. Expect post-route Fmax to drop once clock skew and
    wire RC are included.

@@ -132,6 +132,10 @@ def run_one(test, seed, params=None, cov=False, waves=False, quiet=False, extra_
     spec = TESTS[test]
     runner, bdir = build(spec["top"], params, cov=cov, waves=waves, gls=spec.get("gls", False))
     tag = f"{test}_s{seed}" + ("_" + "_".join(f"{k}{v}" for k, v in sorted(params.items())) if params else "")
+    # runs that differ only in a perf knob (memory latency, size) need their
+    # own directory too, or parallel runs race on results.xml
+    tag += "".join(f"_{k[10:].lower()}{v}" for k, v in sorted(os.environ.items()) if k.startswith("XDMA_PERF_")
+                   and k != "XDMA_PERF_OUT")
     tdir = bdir / "runs" / tag
     tdir.mkdir(parents=True, exist_ok=True)
     env = {"XDMA_SEED": str(seed), "XDMA_PARAMS": ",".join(f"{k}={v}" for k, v in params.items())}
