@@ -1,0 +1,31 @@
+# xdma_addr_gen: 1..MAX_BURST beats, no 4 KB crossing, contiguous tiling of
+# every line, running-stride line starts, last flag on the final burst only,
+# total beats = LINE_BYTES * LINES / 8.
+# LINE_BYTES is reduced to 9 bits (lines up to 63 beats, so a line spans
+# several 16-beat bursts) and LINES to 4 bits. Addresses and stride stay
+# full 32-bit, so 4 KB splits, negative strides and wrap-around are free.
+[tasks]
+prove_b16 b16 prove
+prove_b8  b8  prove
+cover_b16 b16 cover
+
+[options]
+prove: mode prove
+prove: depth 4
+cover: mode cover
+cover: depth 24
+
+[engines]
+smtbmc yices
+
+[script]
+b16: read_slang -j 1 -D FORMAL -I. -G MAX_BURST=16 -G LB_W=9 -G LN_W=4 --top xdma_addr_gen xdma_addr_gen.sv xdma_addr_gen_sva.sv xdma_fv_reset.sv bind_addr_gen.sv
+b8:  read_slang -j 1 -D FORMAL -I. -G MAX_BURST=8 -G LB_W=9 -G LN_W=4 --top xdma_addr_gen xdma_addr_gen.sv xdma_addr_gen_sva.sv xdma_fv_reset.sv bind_addr_gen.sv
+prep -top xdma_addr_gen
+
+[files]
+../../rtl/xdma_addr_gen.sv
+../../sva/xdma_addr_gen_sva.sv
+../../sva/xdma_sva_defs.svh
+xdma_fv_reset.sv
+bind_addr_gen.sv

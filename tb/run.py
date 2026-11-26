@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Build and run cocotb tests on Verilator.
+
+    python3 tb/run.py                         # every test, default seed
+    python3 tb/run.py --test test_csr --seed 7 --waves
+    python3 tb/run.py --test test_chain --params FIFO_DEPTH=32,MAX_OUT_CH=4,MAX_BURST=8
+
+Each parameter set gets its own build directory under tb/build/, so builds
+are reused across tests and seeds. Waves are FST (open with GTKWave or
+Surfer). A failing test prints its seed and the command to reproduce it.
+"""
+import argparse, hashlib, os, pathlib, random, sys, xml.etree.ElementTree as ET
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+TB = ROOT / "tb"
+sys.path.insert(0, str(TB))
+
+from cocotb_tools.runner import get_runner  # noqa: E402
+
+# name -> toplevel, whether it is randomized (runs across seeds in regress)
+TESTS = {
+    "test_addr_gen":        dict(top="xdma_addr_gen", random=True),
+}
+
+RTL_ORDER = ["xdma_pkg.sv"]
+
+
+def sources():
+    rtl = sorted((ROOT / "rtl").glob("*.sv"), key=lambda p: (p.name not in RTL_ORDER, p.name))
+    sva = sorted((ROOT / "sva").glob("*_sva.sv"))
+    binds = [ROOT / "sva" / "xdma_bind.sv"]
+    return rtl + sva + [b for b in binds if b.exists()]
+
+
+def parse_params(text):
+    params = {}
+    for kv in filter(None, (text or "").split(",")):
+        k, v = kv.split("=")
+        params[k.strip()] = int(v)
+    return params
+
+
+_RUNNERS = {}
+
+
+def build(top, params, cov=False, waves=False, defines=None):
+    """Compile one (top, params) configuration; returns (runner, build dir)."""
+    defines = dict(defines or {})
+    key = f"{top}|{sorted(params.items())}|cov={cov}|waves={waves}|{sorted(defines.items())}"
+    tag = hashlib.sha1(key.encode()).hexdigest()[:10]
+    bdir = TB / "build" / f"{top}_{tag}"
+    args = ["--assert", "-Wno-fatal", "-Wno-lint", "-Wno-style",
+            "--x-assign", "unique", "--x-initial", "unique",
+            "-j", os.environ.get("VERILATOR_JOBS", "4")]
+    if cov:
+        args += ["--coverage-line", "--coverage-toggle", "--coverage-user"]
+    if waves:
+        args += ["--trace-fst", "--trace-structs"]
+    if bdir in _RUNNERS:
+        return _RUNNERS[bdir], bdir
+    runner = get_runner("verilator")
+    runner.build(sources=sources(), includes=[ROOT / "sva", ROOT / "rtl"],
+                 hdl_toplevel=top, parameters=params, defines=defines,
+                 build_args=args, build_dir=bdir, waves=waves,
+                 log_file=None)
+    _RUNNERS[bdir] = runner
+    return runner, bdir
+
+
+def run_one(test, seed, params=None, cov=False, waves=False, quiet=False, extra_env=None):
+    """Run one test with one seed. Returns (passed, log_path)."""
+    params = dict(params or {})
+    spec = TESTS[test]
+    runner, bdir = build(spec["top"], params, cov=cov, waves=waves)
+    tag = f"{test}_s{seed}" + ("_" + "_".join(f"{k}{v}" for k, v in sorted(params.items())) if params else "")
+    tdir = bdir / "runs" / tag
+    tdir.mkdir(parents=True, exist_ok=True)
+    env = {"XDMA_SEED": str(seed), "XDMA_PARAMS": ",".join(f"{k}={v}" for k, v in params.items())}
+    env.update(extra_env or {})
+    if cov:
+        env["XDMA_COV_FILE"] = str(tdir / "func_cov.json")
+    log = tdir / "sim.log"
+    plus = [f"+verilator+seed+{seed % 2**31 + 1}", "+verilator+rand+reset+2"]
+    if cov:
+        plus.append(f"+verilator+coverage+file+{tdir / 'coverage.dat'}")
+    try:
+        xml = runner.test(test_module=test, hdl_toplevel=spec["top"], seed=seed,
+                          build_dir=bdir, test_dir=tdir, plusargs=plus,
+                          extra_env=env, waves=waves, log_file=log if quiet else None,
+                          results_xml=str(tdir / "results.xml"))
+        ok = results_ok(xml)
+    except SystemExit:
+        ok = False
+    except Exception as e:  # build or runner failure
+        print(f"runner error: {e}")
+        ok = False
+    if not ok:
+        p = ",".join(f"{k}={v}" for k, v in params.items())
+        print(f"FAIL {test} seed={seed}. Reproduce: make sim TEST={test} SEED={seed}"
+              + (f" PARAMS={p}" if p else "") + f"  (log: {log})", flush=True)
+    return ok, log
+
+
+def results_ok(xml):
+    root = ET.parse(xml).getroot()
+    cases = list(root.iter("testcase"))
+    if not cases:
+        return False
+    return all(c.find("failure") is None and c.find("error") is None for c in cases)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--test", help="comma-separated test names (default: all)")
+    ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--params", default="")
+    ap.add_argument("--waves", action="store_true")
+    ap.add_argument("--cov", action="store_true")
+    a = ap.parse_args()
+    tests = a.test.split(",") if a.test else list(TESTS)
+    seed = a.seed if a.seed is not None else int(os.environ.get("SEED", 1))
+    params = parse_params(a.params)
+    bad = [t for t in tests if not run_one(t, seed, params, cov=a.cov, waves=a.waves)[0]]
+    print(f"\n{len(tests) - len(bad)}/{len(tests)} tests passed (seed {seed})")
+    if bad:
+        print("failed:", ", ".join(bad))
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
