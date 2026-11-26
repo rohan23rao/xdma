@@ -119,13 +119,13 @@ module xdma_rd_chan
   wire ar_hs = ar_req && ar_gnt;
 
   // Burst queue: {pa, last_of_desc}, one entry per outstanding AR.
-  logic        bq_empty, bq_full, bq_last;
+  logic        bq_last;
   logic [31:0] bq_pa;
   xdma_fifo #(.WIDTH(33), .DEPTH(MAX_OUT_CH)) u_bq (
     .clk, .rst_n, .clr(1'b0),
     .push(ar_hs), .din({xl_pa, xl_last}),
     .pop(r_valid && r_last), .dout({bq_pa, bq_last}),
-    .full(bq_full), .empty(bq_empty), .count()
+    .full(), .empty(), .count()
   );
 
   always_ff @(posedge clk) begin

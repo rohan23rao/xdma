@@ -103,7 +103,8 @@ module xdma_top_sva #(
   // never run ahead of accepted requests.
   localparam int QD = MAX_OUT_WR + 2;
   logic [QD-1:0][7:0] q_len;   // packed: formal tools read it in properties
-  logic [$clog2(QD+1)-1:0] q_cnt;
+  localparam int QCW = $clog2(QD+1);
+  logic [QCW-1:0] q_cnt;
   logic [$clog2(QD)-1:0]   q_rd, q_wr;
   logic [7:0] w_cnt;
   wire aw_hs = aw_acc;
@@ -119,7 +120,7 @@ module xdma_top_sva #(
       end
       if (w_hs) w_cnt <= w_end ? 8'd0 : w_cnt + 1'b1;
       if (w_end) q_rd <= (int'(q_rd) == QD - 1) ? '0 : q_rd + 1'b1;
-      q_cnt <= q_cnt + (aw_hs ? 1'b1 : 1'b0) - (w_end ? 1'b1 : 1'b0);
+      q_cnt <= q_cnt + QCW'(aw_hs) - QCW'(w_end);
     end
   end
   `XA(a_w_after_aw, !m_axi_wvalid || q_cnt != '0)

@@ -105,7 +105,6 @@ module xdma_top
   output logic                         irq
 );
 
-  localparam int BW  = $clog2(MAX_BURST + 1);
   localparam int CHW = (NUM_CH > 1) ? $clog2(NUM_CH) : 1;
   localparam int ROW = $clog2(MAX_OUT_RD + 1);
   localparam int WOW = $clog2(MAX_OUT_WR + 1);
@@ -203,7 +202,7 @@ module xdma_top
     wire r_desc = r_hs && (int'(m_axi_rid) == NUM_CH + c);
     wire b_desc = b_hs && (int'(m_axi_bid) == NUM_CH + c);
 
-    xdma_desc_fetch #(.CH(c), .PREFETCH_EN(PREFETCH_EN)) u_ctl (
+    xdma_desc_fetch #(.PREFETCH_EN(PREFETCH_EN)) u_ctl (
       .clk, .rst_n,
       .start(ch_start[c]), .abort(ch_abort[c]), .desc_head(ch_desc_head[c]),
       .busy(ch_busy[c]), .err(ch_err[c]), .err_addr(ch_err_addr[c]), .cur_desc(ch_cur_desc[c]),

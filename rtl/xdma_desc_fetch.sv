@@ -16,7 +16,8 @@
 //   EWB_WAIT wait for its B
 //   FINISH  wait for any fetch still in flight, then report and go IDLE
 //
-// Descriptor reads use AXI ID NUM_CH + CH, ARLEN = 3. The shadow buffer is
+// Descriptor reads use the channel's descriptor ID (NUM_CH + c, set by the
+// AR arbiter), ARLEN = 3. The shadow buffer is
 // filled by every descriptor read (first fetch and prefetch alike), so FETCH
 // only has to wait for shadow_valid.
 // Invariants: at most one descriptor read outstanding; the writeback AW is
@@ -25,7 +26,6 @@
 module xdma_desc_fetch
   import xdma_pkg::*;
 #(
-  parameter int CH          = 0,
   parameter int PREFETCH_EN = 1
 ) (
   input  logic        clk,
