@@ -21,6 +21,9 @@ from cocotb_tools.runner import get_runner  # noqa: E402
 TESTS = {
     "test_addr_gen":        dict(top="xdma_addr_gen", random=True),
     "test_csr":             dict(top="xdma_tb", random=False),
+    "test_mm2s_1d":         dict(top="xdma_tb", random=True),
+    "test_2d":              dict(top="xdma_tb", random=True),
+    "test_boundary_4k":     dict(top="xdma_tb", random=True),
 }
 
 RTL_ORDER = ["xdma_pkg.sv"]
@@ -60,12 +63,21 @@ def build(top, params, cov=False, waves=False, defines=None):
     if bdir in _RUNNERS:
         return _RUNNERS[bdir], bdir
     runner = get_runner("verilator")
+    if os.environ.get("XDMA_SKIP_BUILD") and (bdir / "Vtop.mk").exists():
+        # Parallel regression workers: the parent already built this config;
+        # set up the runner's state without running any build command.
+        runner._execute = lambda *a, **k: None
     runner.build(sources=sources(), includes=[ROOT / "sva", ROOT / "rtl"],
                  hdl_toplevel=top, parameters=params, defines=defines,
                  build_args=args, build_dir=bdir, waves=waves,
                  log_file=None)
+    runner.__dict__.pop("_execute", None)
     _RUNNERS[bdir] = runner
     return runner, bdir
+
+
+def build_for(test, params=None, cov=False, waves=False):
+    return build(TESTS[test]["top"], dict(params or {}), cov=cov, waves=waves)
 
 
 def run_one(test, seed, params=None, cov=False, waves=False, quiet=False, extra_env=None):

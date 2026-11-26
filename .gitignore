@@ -56,3 +56,4 @@ tb/build/
 tb/results*.xml
 perf/build/
 *.dat
+tb/out/

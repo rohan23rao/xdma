@@ -62,3 +62,23 @@ write from cocotbext-axi puts the byte's address on AWADDR (e.g. 0x016 for
 lane 2 of IRQ_MASK), so the write matched no register. AXI4-Lite allows an
 unaligned AxADDR with the lane selected by WSTRB. Fix: decode on the word
 address (`AxADDR[11:2]`) for both reads and writes.
+
+**B-003 Status writeback BYTES one beat short (found by test_mm2s_1d).**
+The controller latched the status word on `dp_done`, but the data path
+counts the descriptor's final beat in that same cycle, so BYTES missed the
+last beat (0 for a one-beat descriptor). Fix: latch the status word in the
+WB state, one cycle later; the W mux cannot read it before the writeback AW
+has been granted and accepted on the bus.
+
+## Testbench
+
+**D-020 S2MM stream source is our own driver.** cocotbext-axi's
+AxiStreamSource always ends a frame with TLAST and cannot send a bad TKEEP,
+so tests could not build EOP = 0 descriptors or STREAM_LEN errors with it.
+`env.StreamDriver` drives any beat pattern with random gaps. cocotbext-axi is
+still used for the AXI4-Lite master and the MM2S stream sinks.
+
+**D-021 No test-only descriptor backdoor.** Step 4 of the spec suggests
+loading the first MM2S descriptor through a backdoor before the fetcher
+exists. The fetcher was written together with the data path, so every test
+goes through the real fetch path instead.

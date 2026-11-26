@@ -47,3 +47,16 @@ async def clock_reset(dut, cycles=5):
 def fail(msg):
     """Raise a test failure that always names the seed."""
     raise AssertionError(f"{msg}  [SEED={seed()}]")
+
+
+def rand_mem_cfg(r, throttle=True):
+    """Random memory-model timing: latency, jitter, READY/VALID throttling,
+    out-of-order responses across IDs."""
+    from models.axi_mem import MemConfig
+    if not throttle:
+        return MemConfig(latency=r.randint(4, 30))
+    return MemConfig(latency=r.randint(2, 40), jitter=r.choice([0, 3, 12]),
+                     max_rd=r.choice([2, 4, 32]), max_wr=r.choice([2, 4, 32]),
+                     p_arready=r.choice([1.0, 0.7, 0.4]), p_awready=r.choice([1.0, 0.7, 0.4]),
+                     p_wready=r.choice([1.0, 0.7, 0.4]), p_rvalid=r.choice([1.0, 0.8, 0.5]),
+                     p_bvalid=r.choice([1.0, 0.8, 0.5]), ooo=r.random() < 0.5)

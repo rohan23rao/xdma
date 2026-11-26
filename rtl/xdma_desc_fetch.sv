@@ -314,8 +314,11 @@ module xdma_desc_fetch
 
   // Status word: [0] DONE, [3:1] ERR, [63:32] BYTES. The error writeback
   // also sets DONE = 1: the engine is finished with this descriptor.
+  // Captured in WB (not on dp_done): the data path counts the final beat in
+  // the same cycle it raises dp_done. The W mux reads wb_data only after the
+  // AW has been granted and accepted on the bus, at least two cycles later.
   always_ff @(posedge clk) begin
-    if (state == S_RUN && dp_done)
+    if (state == S_WB)
       wb_data <= {dp_bytes, 28'b0, ERR_NONE, 1'b1};
     else if (state == S_DRAIN && dp_idle && !fetch_out)
       wb_data <= {dp_bytes, 28'b0, pend_err, 1'b1};
