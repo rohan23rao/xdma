@@ -47,3 +47,12 @@ obj_dir/
 
 # Downloaded PDK collateral
 syn/lib/asap7/
+
+# SymbiYosys work directories and local outputs
+formal/sby/*/
+formal/out/
+tb/sim_build*/
+tb/build/
+tb/results*.xml
+perf/build/
+*.dat
