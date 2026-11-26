@@ -22,12 +22,13 @@ module xdma_rr_arb #(
 
   logic [PW-1:0] ptr;
 
+  int unsigned idx;
   always_comb begin
     grant     = '0;
     grant_idx = '0;
+    idx       = 0;
     // Scan N positions starting at ptr; first active requester wins.
     for (int k = N - 1; k >= 0; k--) begin
-      int unsigned idx;
       idx = (int'(ptr) + k) % N;
       if (req[idx]) begin
         grant     = '0;

@@ -115,8 +115,10 @@ module xdma_csr #(
   always_comb begin
     for (int b = 0; b < 4; b++) wmask[8*b +: 8] = {8{w_strb_q[b]}};
   end
-  function automatic logic [31:0] merge(logic [31:0] old);
-    return (old & ~wmask) | (w_data_q & wmask);
+  // Every input is an argument (no module-level reads inside the function),
+  // so simulators re-evaluate callers when any of them changes.
+  function automatic logic [31:0] merge(logic [31:0] old, logic [31:0] data, logic [31:0] mask);
+    return (old & ~mask) | (data & mask);
   endfunction
   wire [31:0] wbits = w_data_q & wmask;   // bits written as 1 (W1C / W1S)
 
@@ -125,10 +127,20 @@ module xdma_csr #(
     return a == 12'(32'h100 + 32'h40 * c + 32'(off));
   endfunction
 
+  // Implemented IRQ bits: [c] DONE and [8+c] ERROR for each channel.
+  logic [31:0] irq_bits;
+  always_comb begin
+    irq_bits = '0;
+    for (int c = 0; c < NUM_CH; c++) begin
+      irq_bits[c]     = 1'b1;
+      irq_bits[8 + c] = 1'b1;
+    end
+  end
+
   // ----------------------------------------------------- global registers
   logic [31:0] gctrl_new, pt_root_new;
-  assign gctrl_new   = merge({31'b0, translate_en});
-  assign pt_root_new = merge({12'b0, pt_root});
+  assign gctrl_new   = merge({31'b0, translate_en}, w_data_q, wmask);
+  assign pt_root_new = merge({12'b0, pt_root}, w_data_q, wmask);
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -140,7 +152,7 @@ module xdma_csr #(
       tlb_flush <= do_write && (aw_addr_q == 12'h008) && wbits[1];
       if (do_write && aw_addr_q == 12'h008) translate_en <= gctrl_new[0];
       if (do_write && aw_addr_q == 12'h00C) pt_root      <= pt_root_new[19:0];
-      if (do_write && aw_addr_q == 12'h014) irq_mask     <= merge(irq_mask);
+      if (do_write && aw_addr_q == 12'h014) irq_mask     <= merge(irq_mask, w_data_q, wmask) & irq_bits;
     end
   end
 
@@ -154,16 +166,16 @@ module xdma_csr #(
     end
   end
 
+  assign irq = |(irq_status & irq_mask);
+
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       irq_status <= '0;
-      irq        <= 1'b0;
       cycles     <= '0;
       tlb_hits   <= '0;
       tlb_misses <= '0;
     end else begin
       irq_status <= (irq_status & ~((do_write && aw_addr_q == 12'h010) ? wbits : 32'b0)) | irq_set;
-      irq        <= |(irq_status & irq_mask);
       cycles     <= cycles + 1'b1;
       if (tlb_hit_inc  && tlb_hits   != 16'hFFFF) tlb_hits   <= tlb_hits + 1'b1;
       if (tlb_miss_inc && tlb_misses != 16'hFFFF) tlb_misses <= tlb_misses + 1'b1;
@@ -173,8 +185,8 @@ module xdma_csr #(
   // ---------------------------------------------------- channel registers
   for (genvar c = 0; c < NUM_CH; c++) begin : g_ch
     wire wr_ctrl = do_write && is_ch(aw_addr_q, c, 6'h00);
-    wire [31:0] ctrl_new = merge({31'b0, ch_en[c]});
-    wire [31:0] head_new = merge(ch_desc_head[c]);
+    wire [31:0] ctrl_new = merge({31'b0, ch_en[c]}, w_data_q, wmask);
+    wire [31:0] head_new = merge(ch_desc_head[c], w_data_q, wmask);
     // START uses the EN value being written in the same access.
     wire start_ok = wr_ctrl && wbits[1] && ctrl_new[0] && !ch_busy[c];
 
@@ -201,10 +213,11 @@ module xdma_csr #(
           ch_stall[c]    <= '0;
           ch_ndesc[c]    <= '0;
         end else begin
-          ch_bytes[c]    <= ch_bytes[c] + 32'(ev_bytes[c]);
-          ch_busy_cyc[c] <= ch_busy_cyc[c] + 32'(ch_busy[c]);
-          ch_stall[c]    <= ch_stall[c] + 32'(ev_stall[c]);
-          ch_ndesc[c]    <= ch_ndesc[c] + 24'(ev_desc_done[c]);
+          // Enable-coded so synthesis can gate the counter clocks.
+          if (ev_bytes[c] != 8'd0)           ch_bytes[c]    <= ch_bytes[c] + 32'(ev_bytes[c]);
+          if (ch_busy[c])                    ch_busy_cyc[c] <= ch_busy_cyc[c] + 1'b1;
+          if (ch_busy[c] && ev_stall[c])     ch_stall[c]    <= ch_stall[c] + 1'b1;
+          if (ev_desc_done[c])               ch_ndesc[c]    <= ch_ndesc[c] + 1'b1;
         end
       end
     end

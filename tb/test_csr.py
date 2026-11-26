@@ -3,7 +3,7 @@ byte strobes, unmapped addresses, START gating and the irq pin."""
 import cocotb
 from cocotb.triggers import ClockCycles
 
-from common import fail, params, rng
+from common import TIMEOUT, fail, params, rng
 from env import (BUSY_CYC, BYTES, CAPS, CTRL, CUR_DESC, CYCLES, DESC_HEAD, ERR_ADDR, GCTRL, ID,
                  IRQ_MASK, IRQ_STATUS, PT_ROOT, STALL_CYC, STATUS, TLB_STATS, XdmaEnv, ch_base)
 from models.ref_model import ERR_DESC_INVALID, Desc
@@ -14,7 +14,7 @@ def expect(name, got, want):
         fail(f"{name}: read {got:#010x}, expected {want:#010x}")
 
 
-@cocotb.test()
+@cocotb.test(**TIMEOUT)
 async def test_csr(dut):
     r = rng()
     p = params()
@@ -49,12 +49,13 @@ async def test_csr(dut):
         fail(f"CYCLES advanced {c1 - c0} over ~100 cycles")
 
     # RW registers with random values; reserved bits read as zero
+    irq_bits = sum((1 << c) | (1 << (8 + c)) for c in range(n))
     for _ in range(4):
         v = r.getrandbits(32)
         await env.wr(PT_ROOT, v)
         expect("PT_ROOT", await env.rd(PT_ROOT), v & 0xFFFFF)
         await env.wr(IRQ_MASK, v)
-        expect("IRQ_MASK", await env.rd(IRQ_MASK), v)
+        expect("IRQ_MASK", await env.rd(IRQ_MASK), v & irq_bits)
         await env.wr(GCTRL, v & ~2)
         expect("GCTRL", await env.rd(GCTRL), v & 1)
         for c in range(n):
@@ -63,8 +64,11 @@ async def test_csr(dut):
 
     # Byte strobes: only the written byte lane changes
     await env.wr(IRQ_MASK, 0)
-    await env.wr(IRQ_MASK, 0xAABBCCDD, strb=0b0100)
-    expect("IRQ_MASK strobe", await env.rd(IRQ_MASK), 0x00BB0000)
+    await env.wr(IRQ_MASK, 0xAABBCCDD, strb=0b0010)
+    expect("IRQ_MASK strobe", await env.rd(IRQ_MASK), 0x0000CC00 & irq_bits)
+    await env.wr(PT_ROOT, 0)
+    await env.wr(PT_ROOT, 0xAABBCCDD, strb=0b0100)
+    expect("PT_ROOT strobe", await env.rd(PT_ROOT), 0x000B0000)
     await env.wr(IRQ_MASK, 0)
 
     # W1S: TLB_FLUSH and START/ABORT read back as zero

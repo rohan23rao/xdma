@@ -147,7 +147,9 @@ module xdma_rd_chan
   logic        f_empty, f_tag, f_tlast;
   logic [63:0] f_data;
   logic        s_ready;
-  wire         f_pop = !f_empty && s_ready && !dp_drain;
+  // No pops while draining, nor in the flush cycle (the clear lands at the
+  // clock edge, so a pop in that cycle would leak a discarded beat).
+  wire         f_pop = !f_empty && s_ready && !dp_drain && !dp_flush;
 
   xdma_fifo #(.WIDTH(66), .DEPTH(FIFO_DEPTH)) u_fifo (
     .clk, .rst_n, .clr(dp_flush),
@@ -212,6 +214,10 @@ module xdma_rd_chan
 
   // ------------------------------------------------------------- events
   assign ev_bytes = out_live ? 8'd8 : 8'd0;
-  assign ev_stall = (xl_valid && !ar_hs && !dp_drain) || (m_axis_tvalid && !m_axis_tready);
+  // Stall: a request not granted, a burst blocked on FIFO space, or stream
+  // backpressure. Waiting for the per-channel outstanding limit or for a
+  // translation is not a stall (D-031).
+  assign ev_stall = (ar_req && !ar_gnt) || (xl_valid && !room && !dp_drain) ||
+                    (m_axis_tvalid && !m_axis_tready);
 
 endmodule

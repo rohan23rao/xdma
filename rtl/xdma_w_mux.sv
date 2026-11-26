@@ -1,6 +1,8 @@
 // xdma_w_mux: engine-wide W-order queue and W data multiplexer (spec 7.4).
 //
-// Every AW handshake on the bus pushes {awid, awlen} into the W-order queue.
+// Every AW accepted by the AW arbiter pushes {awid, awlen} into the W-order
+// queue (at acceptance, not at the bus handshake, so W never waits for
+// AWREADY; AXI4 A3.3.1).
 // The mux takes the head entry and sends exactly awlen+1 beats from the
 // source that ID names, with WLAST on the final beat, then pops the entry.
 // AXI4 forbids write-data interleaving, so W beats leave in AW order.
@@ -9,7 +11,7 @@
 //                         (one beat from its holding register)
 // W leaves through a skid buffer so WVALID/WDATA/WLAST are registered.
 // Invariants: WLAST exactly on beat awlen of each burst; no beat is sent for
-// an ID whose AW has not been accepted; queue never overflows (it holds at
+// an AW the arbiter has not accepted; queue never overflows (it holds at
 // most MAX_OUT_WR entries, the AW outstanding limit).
 module xdma_w_mux #(
   parameter int NUM_MM2S   = 2,
@@ -20,8 +22,8 @@ module xdma_w_mux #(
 ) (
   input  logic              clk,
   input  logic              rst_n,
-  // AW bus handshake
-  input  logic              aw_hs,
+  // AW accepted by the arbiter
+  input  logic              aw_push,
   input  logic [ID_W-1:0]   aw_id,
   input  logic [7:0]        aw_len,
   // sources
@@ -47,7 +49,7 @@ module xdma_w_mux #(
 
   xdma_fifo #(.WIDTH(ID_W + 8), .DEPTH(MAX_OUT_WR)) u_q (
     .clk, .rst_n, .clr(1'b0),
-    .push(aw_hs), .din({aw_id, aw_len}),
+    .push(aw_push), .din({aw_id, aw_len}),
     .pop(send && last), .dout({q_id, q_len}),
     .full(), .empty(q_empty), .count()
   );

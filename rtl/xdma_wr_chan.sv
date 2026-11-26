@@ -19,7 +19,8 @@
 // The descriptor is done when the B of its final burst returns OKAY (B
 // responses for one ID come back in order, so all earlier ones are back).
 // Invariants: fifo_count >= committed; outstanding <= MAX_OUT_CH; TREADY is
-// low whenever the channel is not running or is in error.
+// low whenever the channel is not running, is in error, or has accepted all
+// beats of the current descriptor.
 module xdma_wr_chan
   import xdma_pkg::*;
 #(
@@ -83,16 +84,47 @@ module xdma_wr_chan
   logic        in_valid, in_ready, in_last, in_ready_skid;
   logic [63:0] in_data;
   logic [7:0]  in_keep;
-  logic        accept_q;          // registered: channel may take stream beats
   logic        err_seen;
+  // Interface-side beat counters: TREADY is high only while the current
+  // descriptor still has beats to accept, so the input skid never takes a
+  // beat of the next packet (all terms are registers: no combinational
+  // path from TVALID to TREADY).
+  logic [12:0] acc_beat;
+  logic [15:0] acc_lines;
+  logic        acc_want;
+  wire         acc_ok = acc_want && dp_run && !dp_drain && !err_seen;
 
   xdma_skid #(.WIDTH(73)) u_in (
     .clk, .rst_n, .clr(dp_flush),
-    .s_valid(s_axis_tvalid && accept_q), .s_ready(in_ready_skid),
+    .s_valid(s_axis_tvalid && acc_ok), .s_ready(in_ready_skid),
     .s_data({s_axis_tlast, s_axis_tkeep, s_axis_tdata}),
     .m_valid(in_valid), .m_ready(in_ready), .m_data({in_last, in_keep, in_data})
   );
-  assign s_axis_tready = in_ready_skid && accept_q;
+  assign s_axis_tready = in_ready_skid && acc_ok;
+  wire   s_hs = s_axis_tvalid && s_axis_tready;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      acc_want <= 1'b0;
+    end else if (dp_start || dp_flush) begin
+      acc_want <= dp_start;
+    end else if (s_hs && acc_beat == 13'd1 && acc_lines == 16'd1) begin
+      acc_want <= 1'b0;
+    end
+  end
+  always_ff @(posedge clk) begin
+    if (dp_start) begin
+      acc_beat  <= dp_desc.line_bytes[15:3];
+      acc_lines <= dp_desc.lines;
+    end else if (s_hs) begin
+      if (acc_beat == 13'd1) begin
+        acc_beat  <= dp_desc.line_bytes[15:3];
+        acc_lines <= acc_lines - 1'b1;
+      end else begin
+        acc_beat <= acc_beat - 1'b1;
+      end
+    end
+  end
 
   // Beats left in the descriptor: nested counters.
   logic [12:0] line_beats, beat_left;
@@ -113,9 +145,7 @@ module xdma_wr_chan
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       want     <= 1'b0;
-      accept_q <= 1'b0;
     end else begin
-      accept_q <= dp_run && !dp_drain && !err_seen && !beat_bad;
       if (dp_start || dp_flush) want <= dp_start;
       else if (take && last_beat) want <= 1'b0;
       else if (beat_bad) want <= 1'b0;

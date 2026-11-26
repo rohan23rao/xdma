@@ -5,7 +5,9 @@
 //   2. S2MM data bursts    ID NUM_MM2S + c, AWLEN beats-1 (RR over S2MM)
 // At most MAX_OUT_WR AWs are outstanding engine-wide: counted from the
 // arbiter grant until the B handshake. AW leaves through a skid buffer.
-// The W-order queue is pushed by the bus AW handshake (see xdma_w_mux).
+// The W-order queue is pushed when a request is accepted here (acc_*), not
+// on the bus AW handshake: AXI4 forbids a master from waiting for AWREADY
+// before asserting WVALID (D-030). The skid keeps AWs in the same order.
 // Invariants: one grant per cycle at most; wr_out <= MAX_OUT_WR.
 module xdma_aw_arb #(
   parameter int NUM_MM2S   = 2,
@@ -26,6 +28,9 @@ module xdma_aw_arb #(
   output logic [NUM_S2MM-1:0]  data_gnt,
   input  logic                 b_hs,
   output logic [OW-1:0]        wr_out,
+  output logic                 acc,
+  output logic [ID_W-1:0]      acc_id,
+  output logic [7:0]           acc_len,
   output logic                 m_axi_awvalid,
   input  logic                 m_axi_awready,
   output logic [ID_W-1:0]      m_axi_awid,
@@ -67,6 +72,10 @@ module xdma_aw_arb #(
       id = ID_W'(NUM_MM2S + int'(s_idx)); addr = data_addr[s_idx]; len = data_len[s_idx];
     end
   end
+
+  assign acc     = accept;
+  assign acc_id  = id;
+  assign acc_len = len;
 
   always_ff @(posedge clk) begin
     if (!rst_n) wr_out <= '0;

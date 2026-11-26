@@ -43,8 +43,17 @@ module xdma_top_sva #(
   input logic [NUM_CH-1:0]         tlb_resp_valid,
   input logic                      ptw_ar_req,
   input logic [NUM_CH-1:0]         desc_req,
-  input logic [NUM_MM2S-1:0]       rd_req
+  input logic [NUM_MM2S-1:0]       rd_req,
+  input logic                      aw_acc,
+  input logic [7:0]                aw_acc_len
 );
+`ifndef FORMAL
+  // Elaboration checks on the parameters (spec 3, 9.1).
+  initial begin
+    if (2 * NUM_CH >= (1 << ID_W)) $fatal(1, "ID_W=%0d cannot hold walker ID %0d", ID_W, 2 * NUM_CH);
+    if (MAX_BURST < 1 || MAX_BURST > 256) $fatal(1, "MAX_BURST=%0d out of range", MAX_BURST);
+  end
+`endif
   logic past_ok;   // reset was released at least one cycle ago
   always_ff @(posedge clk) past_ok <= rst_n;
 
@@ -85,14 +94,16 @@ module xdma_top_sva #(
   `XA(a_rready_high, !past_ok || m_axi_rready)
   `XA(a_bready_high, !past_ok || m_axi_bready)
 
-  // ---- W beats per AW = AWLEN + 1, WLAST exactly on the last (bus-level
-  // model of the AW lengths still waiting for their W data)
+  // ---- W beats per AW = AWLEN + 1, WLAST exactly on the last. The model
+  // queues each AW when the arbiter accepts it (W may then lead the bus AW,
+  // which AXI4 allows) and checks the W bus against it. AW bus handshakes
+  // never run ahead of accepted requests.
   localparam int QD = MAX_OUT_WR + 2;
-  logic [7:0] q_len [QD];
+  logic [QD-1:0][7:0] q_len;   // packed: formal tools read it in properties
   logic [$clog2(QD+1)-1:0] q_cnt;
   logic [$clog2(QD)-1:0]   q_rd, q_wr;
   logic [7:0] w_cnt;
-  wire aw_hs = m_axi_awvalid && m_axi_awready;
+  wire aw_hs = aw_acc;
   wire w_hs  = m_axi_wvalid && m_axi_wready;
   wire w_end = w_hs && (w_cnt == q_len[q_rd]);
   always_ff @(posedge clk) begin
@@ -100,7 +111,7 @@ module xdma_top_sva #(
       q_cnt <= '0; q_rd <= '0; q_wr <= '0; w_cnt <= '0;
     end else begin
       if (aw_hs) begin
-        q_len[q_wr] <= m_axi_awlen;
+        q_len[q_wr] <= aw_acc_len;
         q_wr <= (int'(q_wr) == QD - 1) ? '0 : q_wr + 1'b1;
       end
       if (w_hs) w_cnt <= w_end ? 8'd0 : w_cnt + 1'b1;

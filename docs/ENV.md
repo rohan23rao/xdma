@@ -5,8 +5,8 @@
 The original spec targets Synopsys VCS/Verdi, Cadence JasperGold and Synopsys
 DC/PT. None of those were available on the build machine (no binaries, no
 `module` system, no license variables), so the project owner chose a fully
-open-source flow and dropped synthesis from scope. Every number in this repo
-comes from the tools below.
+open-source flow (DECISIONS.md D-001). Synthesis uses Yosys with the ASAP7
+liberty and OpenSTA. Every number in this repo comes from the tools below.
 
 | Purpose | Tool | Version |
 |---|---|---|
@@ -19,6 +19,10 @@ comes from the tools below.
 | SMT solver | Yices | 2.6.5 |
 | SMT solver (fallback) | Z3 | 4.8.12 |
 | PDR engine | Berkeley ABC (YosysHQ fork) | commit d0c5502 |
+| Synthesis | Yosys (YoWASP build), ABC mapping to ASAP7 | Yosys 0.71 |
+| Static timing and power | OpenSTA (built from source) | commit 39f9dec |
+| BDD library for OpenSTA | CUDD | 3.0.0 |
+| Standard cells | ASAP7 7.5-track RVT, TT corner, NLDM (from OpenROAD-flow-scripts) | fetched by `syn/yosys/fetch_asap7.sh` |
 | Plots | matplotlib / numpy | 3.11.2 / 2.5.3 |
 | Python | CPython | 3.13.18 |
 | C++ compiler | g++ | 13.3.0 |
@@ -27,7 +31,7 @@ comes from the tools below.
 ## Setup
 
 ```sh
-sudo ./tools/setup_tools.sh   # builds Verilator, Yices, ABC; pip-installs the rest
+sudo ./tools/setup_tools.sh   # builds Verilator, Yices, ABC, CUDD, OpenSTA; pip-installs the rest
 source tools/env.sh           # puts /opt/verilator/bin and /opt/oss/bin on PATH
 ```
 

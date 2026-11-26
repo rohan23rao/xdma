@@ -9,3 +9,4 @@ bind xdma_top xdma_top_sva #(.NUM_MM2S(NUM_MM2S), .NUM_S2MM(NUM_S2MM), .ID_W(ID_
 bind xdma_rd_chan  xdma_rd_chan_sva  #(.FIFO_DEPTH(FIFO_DEPTH), .MAX_OUT_CH(MAX_OUT_CH)) u_sva (.*);
 bind xdma_wr_chan  xdma_wr_chan_sva  #(.FIFO_DEPTH(FIFO_DEPTH), .MAX_OUT_CH(MAX_OUT_CH)) u_sva (.*);
 bind xdma_desc_fetch xdma_desc_fetch_sva u_sva (.*);
+bind xdma_w_mux xdma_w_mux_sva #(.ID_W(ID_W), .MAX_OUT_WR(MAX_OUT_WR)) u_sva (.*);

@@ -257,6 +257,9 @@ module xdma_top
   // ------------------------------------------------------------ arbiters
   logic [ROW-1:0] rd_out;
   logic [WOW-1:0] wr_out;
+  logic           aw_acc;
+  logic [ID_W-1:0] aw_acc_id;
+  logic [7:0]     aw_acc_len;
 
   xdma_ar_arb #(.NUM_MM2S(NUM_MM2S), .NUM_CH(NUM_CH), .ID_W(ID_W), .MAX_OUT_RD(MAX_OUT_RD)) u_ar_arb (
     .clk, .rst_n,
@@ -271,13 +274,13 @@ module xdma_top
     .clk, .rst_n,
     .wb_req, .wb_addr, .wb_gnt,
     .data_req(wr_req), .data_addr(wr_addr), .data_len(wr_len), .data_gnt(wr_gnt),
-    .b_hs, .wr_out,
+    .b_hs, .wr_out, .acc(aw_acc), .acc_id(aw_acc_id), .acc_len(aw_acc_len),
     .m_axi_awvalid, .m_axi_awready, .m_axi_awid, .m_axi_awaddr, .m_axi_awlen
   );
 
   xdma_w_mux #(.NUM_MM2S(NUM_MM2S), .NUM_S2MM(NUM_S2MM), .ID_W(ID_W), .MAX_OUT_WR(MAX_OUT_WR)) u_w_mux (
     .clk, .rst_n,
-    .aw_hs(m_axi_awvalid && m_axi_awready), .aw_id(m_axi_awid), .aw_len(m_axi_awlen),
+    .aw_push(aw_acc), .aw_id(aw_acc_id), .aw_len(aw_acc_len),
     .s2mm_data(w_src), .s2mm_pop(w_pop), .wb_data,
     .m_axi_wvalid, .m_axi_wready, .m_axi_wdata, .m_axi_wstrb, .m_axi_wlast
   );

@@ -3,13 +3,13 @@ Sizes from one beat to 8 KB, random start addresses (some just below a 4 KB
 boundary), random EOP/IRQ, random memory timing and stream backpressure."""
 import cocotb
 
-from common import params, rand_mem_cfg, rng
+from common import TIMEOUT, params, rand_mem_cfg, rng
 from env import XdmaEnv
 from models.desc_builder import Allocator, DescBuilder
 from scoreboard import ChannelJob, check_memory, run_jobs
 
 
-@cocotb.test()
+@cocotb.test(**TIMEOUT)
 async def test_mm2s_1d(dut):
     r = rng()
     p = params()

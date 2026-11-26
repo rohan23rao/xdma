@@ -2,13 +2,13 @@
 directions (zero stride on MM2S only: it repeats a line)."""
 import cocotb
 
-from common import params, rand_mem_cfg, rng
+from common import TIMEOUT, params, rand_mem_cfg, rng
 from env import XdmaEnv
 from models.desc_builder import Allocator, DescBuilder
 from scoreboard import ChannelJob, check_memory, run_jobs
 
 
-@cocotb.test()
+@cocotb.test(**TIMEOUT)
 async def test_2d(dut):
     r = rng()
     p = params()

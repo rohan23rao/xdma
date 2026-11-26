@@ -4,7 +4,7 @@ into different descriptor chains of random sizes; only the last descriptor
 of each chain has EOP, so TLAST appears exactly once, at the end."""
 import cocotb
 
-from common import fail, params, rand_mem_cfg, rng
+from common import TIMEOUT, fail, params, rand_mem_cfg, rng
 from env import XdmaEnv
 from models.desc_builder import Allocator
 from models.ref_model import Desc
@@ -30,7 +30,7 @@ def chain_for(r, a, sizes, region):
     return out
 
 
-@cocotb.test()
+@cocotb.test(**TIMEOUT)
 async def test_loopback_copy(dut):
     r = rng()
     p = params()

@@ -59,4 +59,11 @@ def rand_mem_cfg(r, throttle=True):
                      max_rd=r.choice([2, 4, 32]), max_wr=r.choice([2, 4, 32]),
                      p_arready=r.choice([1.0, 0.7, 0.4]), p_awready=r.choice([1.0, 0.7, 0.4]),
                      p_wready=r.choice([1.0, 0.7, 0.4]), p_rvalid=r.choice([1.0, 0.8, 0.5]),
-                     p_bvalid=r.choice([1.0, 0.8, 0.5]), ooo=r.random() < 0.5)
+                     p_bvalid=r.choice([1.0, 0.8, 0.5]), ooo=r.random() < 0.5,
+                     aw_wait_w=r.random() < 0.3 or bool(os.environ.get("XDMA_AW_WAIT_W")))
+
+
+# Every test gets a simulation-time limit so a hang fails instead of running
+# forever: @cocotb.test(**TIMEOUT). 20 ms = 2,000,000 cycles at 100 MHz.
+TIMEOUT = dict(timeout_time=20, timeout_unit="ms")
+LONG_TIMEOUT = dict(timeout_time=200, timeout_unit="ms")

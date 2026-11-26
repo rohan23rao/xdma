@@ -5,13 +5,13 @@ Each round checks every channel's data, status words and registers, and
 that no byte outside the destinations changed."""
 import cocotb
 
-from common import fail, params, rand_mem_cfg, rng
+from common import TIMEOUT, fail, params, rand_mem_cfg, rng
 from env import XdmaEnv
 from models.desc_builder import Allocator, DescBuilder
 from scoreboard import ChannelJob, check_memory, run_jobs
 
 
-@cocotb.test()
+@cocotb.test(**TIMEOUT)
 async def test_all_channels(dut):
     r = rng()
     p = params()

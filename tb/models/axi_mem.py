@@ -9,8 +9,11 @@ Written for this project instead of using an off-the-shelf RAM so it can:
 - return responses out of order across IDs (randomly), in order within an ID,
   and interleave R beats of different IDs;
 - check the master: 4 KB crossing, ARLEN/AWLEN <= MAX_BURST-1, size and burst
-  type, WLAST position, W before AW, VALID held until READY with a stable
-  payload, IDs outside the engine's ID map.
+  type, WLAST position, VALID held until READY with a stable payload, IDs
+  outside the engine's ID map.
+- accept W data before its AW (AXI4 allows it) and, with aw_wait_w, hold
+  AWREADY low until WVALID has been seen, like a slave that waits for write
+  data: a master that waits for AWREADY before WVALID deadlocks against it.
 
 Timing: one coroutine runs the whole slave. Each cycle, right after the
 rising edge, it applies the handshakes that happened at that edge and drives
@@ -100,6 +103,7 @@ class MemConfig:
     p_rvalid: float = 1.0
     p_bvalid: float = 1.0
     ooo: bool = False           # random order across IDs (and R interleave)
+    aw_wait_w: bool = False     # AWREADY only after WVALID has been seen
     rd_err: list = field(default_factory=list)   # [(lo, hi, resp)] inclusive lo, exclusive hi
     wr_err: list = field(default_factory=list)
 
@@ -123,6 +127,8 @@ class AxiMemModel:
         self._seq = 0
         self.rd = []       # outstanding reads
         self.aw_q = []     # AWs waiting for W data
+        self.w_buf = []    # W beats not yet matched to an AW
+        self._wvalid_seen = False
         self.b_q = []      # pending B responses
         self.r_cur = None  # beat currently presented on R
         self.b_cur = None
@@ -163,7 +169,7 @@ class AxiMemModel:
 
     def idle(self):
         """No transaction in flight in either direction."""
-        return not (self.rd or self.aw_q or self.b_q or self.r_cur or self.b_cur)
+        return not (self.rd or self.aw_q or self.b_q or self.r_cur or self.b_cur or self.w_buf)
 
     # ---------------------------------------------------- address checks
     def _check_addr(self, kind, aid, addr, alen, size, burst):
@@ -205,31 +211,33 @@ class AxiMemModel:
                 self.aw_log.append((self.cycle, aid, addr, alen + 1))
                 self.aw_q.append(dict(id=aid, addr=addr, beats=alen + 1, data=[]))
             if hs.get("w"):
-                data, strb, last = hs["w"]
                 self.w_beats += 1
-                if not self.aw_q:
-                    self._err("W beat with no outstanding AW (W before AW)")
-                else:
-                    t = self.aw_q[0]
-                    t["data"].append((data, strb))
-                    n = len(t["data"])
-                    if bool(last) != (n == t["beats"]):
-                        self._err(f"WLAST={last} on beat {n} of {t['beats']} (AW {t['addr']:#x} id {t['id']})")
-                    if n == t["beats"] or last:
-                        self.aw_q.pop(0)
-                        resp = self._resp_for(cfg.wr_err, t["addr"], t["beats"] * 8)
-                        if resp == OKAY:
-                            for i, (d, sb) in enumerate(t["data"]):
-                                a = t["addr"] + 8 * i
-                                if sb == 0xFF:
-                                    self.mem.write64(a, d)
-                                else:
-                                    for b in range(8):
-                                        if sb >> b & 1:
-                                            self.mem.write(a + b, bytes([(d >> (8 * b)) & 0xFF]))
-                        self._seq += 1
-                        self.b_q.append(dict(id=t["id"], resp=resp, seq=self._seq,
-                                             ready=self.cycle + self._delay()))
+                self.w_buf.append(hs["w"])
+            # match buffered W beats to AWs in order
+            while self.aw_q and self.w_buf:
+                t = self.aw_q[0]
+                data, strb, last = self.w_buf.pop(0)
+                t["data"].append((data, strb))
+                n = len(t["data"])
+                if bool(last) != (n == t["beats"]):
+                    self._err(f"WLAST={last} on beat {n} of {t['beats']} (AW {t['addr']:#x} id {t['id']})")
+                if n == t["beats"]:
+                    self.aw_q.pop(0)
+                    resp = self._resp_for(cfg.wr_err, t["addr"], t["beats"] * 8)
+                    if resp == OKAY:
+                        for i, (d, sb) in enumerate(t["data"]):
+                            a = t["addr"] + 8 * i
+                            if sb == 0xFF:
+                                self.mem.write64(a, d)
+                            else:
+                                for b in range(8):
+                                    if sb >> b & 1:
+                                        self.mem.write(a + b, bytes([(d >> (8 * b)) & 0xFF]))
+                    self._seq += 1
+                    self.b_q.append(dict(id=t["id"], resp=resp, seq=self._seq,
+                                         ready=self.cycle + self._delay()))
+            if len(self.w_buf) > 4 * self.max_burst + 4:
+                self._err(f"{len(self.w_buf)} W beats received with no AW")
             if hs.get("r"):
                 t = self.r_cur["txn"]
                 self.r_beats += 1
@@ -244,7 +252,9 @@ class AxiMemModel:
             # ---- drive outputs for this cycle
             self._drive("arready", int(len(self.rd) < cfg.max_rd and rng.random() < cfg.p_arready))
             n_wr = len(self.aw_q) + len(self.b_q)
-            self._drive("awready", int(n_wr < cfg.max_wr and rng.random() < cfg.p_awready))
+            w_waiting = bool(self.w_buf) or self._wvalid_seen
+            self._drive("awready", int(n_wr < cfg.max_wr and rng.random() < cfg.p_awready
+                                       and (w_waiting or not cfg.aw_wait_w)))
             self._drive("wready", int(rng.random() < cfg.p_wready))
 
             if self.r_cur is None and self.rd and rng.random() < cfg.p_rvalid:
@@ -313,6 +323,7 @@ class AxiMemModel:
             prev["aw_wait"] = awvalid and not self._driven["awready"]
 
             wvalid = int(s["wvalid"].value)
+            self._wvalid_seen = bool(wvalid)
             if wvalid:
                 w = (int(s["wdata"].value), int(s["wstrb"].value), int(s["wlast"].value))
                 if prev.get("w_wait") and prev["w"] != w:

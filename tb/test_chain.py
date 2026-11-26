@@ -4,13 +4,13 @@ that the next descriptor was prefetched: its fetch AR is on the bus before
 the writeback AW of the descriptor before it."""
 import cocotb
 
-from common import fail, params, rand_mem_cfg, rng
+from common import TIMEOUT, fail, params, rand_mem_cfg, rng
 from env import XdmaEnv
 from models.desc_builder import Allocator, DescBuilder
 from scoreboard import ChannelJob, check_memory, run_jobs
 
 
-@cocotb.test()
+@cocotb.test(**TIMEOUT)
 async def test_chain(dut):
     r = rng()
     p = params()

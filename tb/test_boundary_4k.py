@@ -3,14 +3,14 @@ burst the engine issues (address and length, in order) against the section
 7.2 splitter, for both directions, and the data."""
 import cocotb
 
-from common import fail, params, rand_mem_cfg, rng
+from common import TIMEOUT, fail, params, rand_mem_cfg, rng
 from env import XdmaEnv
 from models.desc_builder import Allocator, DescBuilder
 from models.ref_model import Desc
 from scoreboard import ChannelJob, check_memory, run_jobs
 
 
-@cocotb.test()
+@cocotb.test(**TIMEOUT)
 async def test_boundary_4k(dut):
     r = rng()
     p = params()
