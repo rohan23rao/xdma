@@ -10,7 +10,7 @@ from cocotb.triggers import RisingEdge, ReadOnly
 from common import clock_reset, fail, rng
 from models.ref_model import split_bursts
 
-MAX_BURST = 16
+MAX_BURST = int(__import__("os").environ.get("XDMA_AG_MAX_BURST", "16"))
 
 
 def rand_desc(r):
