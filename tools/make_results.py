@@ -101,8 +101,13 @@ def main():
     cov_p = ROOT / "tb/out/coverage.json"
     cov = json.load(open(cov_p)) if cov_p.exists() else None
     reg = {}
-    for p in sorted((ROOT / "tb/out").glob("regress_*.csv")):
-        reg[p.stem.replace("regress_", "")] = list(csv.DictReader(open(p)))
+    # sign-off regressions only (the coverage runs write regress_cov*.csv)
+    labels = {"default": "default", "small": "FIFO_DEPTH=32, MAX_OUT_CH=4, MAX_BURST=8",
+              "noprefetch": "PREFETCH_EN=0"}
+    for tag, label in labels.items():
+        p = ROOT / "tb/out" / f"regress_{tag}.csv"
+        if p.exists():
+            reg[label] = list(csv.DictReader(open(p)))
 
     def lat_pt(l, fd, mo, mb=16):
         if not lat:
@@ -176,8 +181,9 @@ def main():
 
     # --------------------------------------------------------- regression
     if reg:
-        out += ["## Regression", "", "Command: `make regress SEEDS=N` (default parameters) and "
-                "`python3 tb/regress.py --params FIFO_DEPTH=32,MAX_OUT_CH=4,MAX_BURST=8`. "
+        out += ["## Regression", "", "Commands: `make regress SEEDS=200` (default parameters), "
+                "`python3 tb/regress.py --seeds 50 --params FIFO_DEPTH=32,MAX_OUT_CH=4,MAX_BURST=8 --tag small` and "
+                "`python3 tb/regress.py --seeds 50 --params PREFETCH_EN=0 --tag noprefetch`. "
                 "Every run has all assertions bound in; a run passes only with zero "
                 "assertion failures.", ""]
         tests = sorted({r["test"] for rs in reg.values() for r in rs})
