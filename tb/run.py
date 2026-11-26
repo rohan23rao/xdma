@@ -32,6 +32,10 @@ TESTS = {
     "test_stream_len":      dict(top="xdma_tb", random=True),
     "test_abort":           dict(top="xdma_tb", random=True),
     "test_irq":             dict(top="xdma_tb", random=True),
+    "test_translate_basic": dict(top="xdma_tb", random=True),
+    "test_translate_fault": dict(top="xdma_tb", random=True),
+    "test_tlb_flush":       dict(top="xdma_tb", random=True),
+    "test_soak":            dict(top="xdma_tb", random=True),
 }
 
 RTL_ORDER = ["xdma_pkg.sv"]

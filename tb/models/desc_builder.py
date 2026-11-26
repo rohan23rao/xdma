@@ -37,9 +37,12 @@ class Allocator:
 
 
 class DescBuilder:
-    def __init__(self, rng, alloc, max_bytes=16384):
+    def __init__(self, rng, alloc, max_bytes=16384, dalloc=None):
+        """alloc places data buffers (virtual addresses when translation is
+        on); dalloc places descriptors, which are always physical."""
         self.rng = rng
         self.alloc = alloc
+        self.dalloc = dalloc or alloc
         self.max_bytes = max_bytes
 
     def shape(self, write, kind=None):
@@ -81,7 +84,7 @@ class DescBuilder:
         """n descriptors linked by NEXT, LAST on the final one, at random
         32-byte aligned addresses. Returns [(addr, Desc)]."""
         descs = [self.desc(write, **kw) for _ in range(n)]
-        addrs = [self.alloc.alloc(32, align=32) for _ in range(n)]
+        addrs = [self.dalloc.alloc(32, align=32) for _ in range(n)]
         for i, d in enumerate(descs):
             d.last = (i == n - 1)
             d.nxt = addrs[i + 1] if i + 1 < n else self.rng.choice([0, addrs[0], 0xDEAD_BEE0])

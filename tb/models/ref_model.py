@@ -156,6 +156,8 @@ def predict_mm2s(read_bytes, chain, xlat=None, max_burst=16):
             if xlat is not None:
                 pa, why = xlat.translate(va, write=False)
                 if pa is None:
+                    # beats before the faulting burst are still streamed
+                    res.stream += [(b, 0) for b in beats]
                     res.err, res.err_addr = ERR_XLAT_FAULT, va
                     return res
             data = read_bytes(pa, nb * 8)

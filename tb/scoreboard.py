@@ -34,12 +34,18 @@ class ChannelJob:
             if src_fill:
                 for _, d in chain:
                     for la in d.line_addrs():
-                        pa = la
-                        if xlat is not None:
-                            pa, _ = xlat.translate(la, write=False)
-                            if pa is None:
-                                continue
-                        mem.write(pa, bytes(rng.getrandbits(8) for _ in range(d.line_bytes)))
+                        # fill page by page: with translation a line may span
+                        # pages that are not physically contiguous
+                        off = 0
+                        while off < d.line_bytes:
+                            va = (la + off) & 0xFFFF_FFFF
+                            n = min(4096 - va % 4096, d.line_bytes - off)
+                            pa = va
+                            if xlat is not None:
+                                pa, _ = xlat.translate(va, write=False)
+                            if pa is not None:
+                                mem.write(pa, bytes(rng.getrandbits(8) for _ in range(n)))
+                            off += n
             self.exp = predict_mm2s(mem.read, chain, xlat, self.max_burst)
         self.mon_start = len(env.mons[c].beats) if not self.write else 0
         self.dest_before = {a: mem.read(a, 1)[0] for a in self.exp.writes} if self.write else {}

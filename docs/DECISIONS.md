@@ -212,3 +212,17 @@ reworded SPEC.md 7.1: prefetch hides the descriptor fetch latency; the
 remaining gap (status writeback round trip + first read latency) is
 measured by the descriptor-overhead experiment and reported in RESULTS.md.
 Overlapping the next descriptor with the writeback is in FUTURE.md.
+
+## Step 7 and 8 testbench notes
+
+**D-046 Walker AXI errors are tested in test_translate_fault** (kind
+`walker_err`), next to the other translation faults, rather than in
+test_axi_errors. A PTE read is one aligned 8-byte word that holds two
+adjacent leaf PTEs, so an error on it faults both pages; the test accounts
+for that.
+
+**D-047 Soak hang root cause: testbench, not RTL.** Three soak seeds
+timed out with an MM2S channel busy. cocotbext-axi's sink keeps its `pause`
+flag at the last generated value when its pause generator is replaced, so a
+round could leave TREADY stuck low forever. `env.set_sink_pause()` now
+clears `pause` explicitly; the same seeds pass.

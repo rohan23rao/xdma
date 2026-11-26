@@ -150,6 +150,15 @@ class XdmaEnv:
                 fail("stream monitor: " + "; ".join(m.errors))
 
     # ------------------------------------------------------------- streams
+    def set_sink_pause(self, i, prob):
+        """Change MM2S sink backpressure. cocotbext-axi leaves `pause` at its
+        last value when a generator is replaced, so reset it explicitly."""
+        snk = self.sinks[i]
+        snk.clear_pause_generator()
+        snk.pause = False
+        if prob:
+            snk.set_pause_generator(rand_pause(self.rng, prob))
+
     def ch_state(self, c):
         """Channel controller state (0 IDLE, 1 FETCH, 2 RUN, 3 WB, 4 WB_WAIT,
         5 DRAIN, 6 EWB, 7 EWB_WAIT, 8 FINISH), read through the hierarchy."""
