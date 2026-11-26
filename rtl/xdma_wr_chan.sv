@@ -56,6 +56,7 @@ module xdma_wr_chan
   input  logic [19:0]   tlb_resp_ppn,
   input  logic          walk_resp_valid,
   input  logic          walk_resp_ok,
+  input  logic          walk_resp_stale,
   input  logic [19:0]   walk_resp_ppn,
   input  logic          walk_busy,
   // AW request to the arbiter
@@ -76,7 +77,7 @@ module xdma_wr_chan
   input  logic [7:0]    s_axis_tkeep,
   input  logic          s_axis_tlast,
   // events
-  output logic [7:0]    ev_bytes,
+  output logic [11:0]   ev_bytes,
   output logic          ev_stall
 );
 
@@ -198,7 +199,7 @@ module xdma_wr_chan
     .out_valid(xl_valid), .out_ready(xl_ready), .out_pa(xl_pa), .out_va(xl_va),
     .out_beats(xl_beats), .out_last(xl_last), .fault(xl_fault),
     .tlb_req, .tlb_vpn, .tlb_gnt, .tlb_resp_valid, .tlb_resp_kind, .tlb_resp_ppn,
-    .walk_resp_valid, .walk_resp_ok, .walk_resp_ppn, .walk_busy
+    .walk_resp_valid, .walk_resp_ok, .walk_resp_stale, .walk_resp_ppn, .walk_busy
   );
 
   // ------------------------------------------------- AW-after-data issue
@@ -278,7 +279,7 @@ module xdma_wr_chan
   end
 
   // ------------------------------------------------------------- events
-  assign ev_bytes = b_ok ? 8'({bq_beats, 3'b000}) : 8'd0;
+  assign ev_bytes = b_ok ? 12'({bq_beats, 3'b000}) : 12'd0;
   assign ev_stall = (aw_req && !aw_gnt) || (in_valid && want && f_full && dp_run);
 
 endmodule

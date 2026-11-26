@@ -7,7 +7,8 @@
 // TRANSLATE_EN = 1 it asks the shared TLB:
 //   LOOKUP  request held until the TLB arbiter grants it
 //   RESP    TLB answer one cycle after the grant: HIT, FAULT, WALK or RETRY
-//   WALK    waiting for the walker's answer for this channel
+//   WALK    waiting for the walker's answer for this channel (an answer
+//           marked stale by a TLB flush sends the burst back to LOOKUP)
 //   RETRY   TLB missed while the walker was busy: wait until it is free
 //   READY   physical burst valid (out_valid)
 //   FAULT   translation fault; fault stays high until abort
@@ -47,6 +48,7 @@ module xdma_xlat_stage
   // walker answer for this channel
   input  logic          walk_resp_valid,
   input  logic          walk_resp_ok,
+  input  logic          walk_resp_stale,   // a TLB flush overtook the walk
   input  logic [19:0]   walk_resp_ppn,
   input  logic          walk_busy
 );
@@ -78,7 +80,8 @@ module xdma_xlat_stage
             default:  st <= X_RETRY;
           endcase
         end
-        X_WALK:  if (walk_resp_valid) st <= walk_resp_ok ? X_READY : X_FAULT;
+        X_WALK:  if (walk_resp_valid) st <= walk_resp_stale ? X_RETRY :
+                                             (walk_resp_ok ? X_READY : X_FAULT);
         X_RETRY: if (!walk_busy) st <= X_LOOKUP;
         X_READY: if (out_ready) st <= X_EMPTY;
         default: ;
@@ -95,7 +98,7 @@ module xdma_xlat_stage
       out_last  <= in_last;
     end else if (st == X_RESP && tlb_resp_valid && tlb_resp_kind == XL_HIT) begin
       out_pa[31:12] <= tlb_resp_ppn;
-    end else if (st == X_WALK && walk_resp_valid && walk_resp_ok) begin
+    end else if (st == X_WALK && walk_resp_valid && walk_resp_ok && !walk_resp_stale) begin
       out_pa[31:12] <= walk_resp_ppn;
     end
   end

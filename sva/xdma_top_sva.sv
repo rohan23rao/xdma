@@ -6,6 +6,7 @@ module xdma_top_sva #(
   parameter int NUM_S2MM   = 2,
   parameter int ID_W       = 4,
   parameter int MAX_BURST  = 16,
+  parameter int FIFO_DEPTH = 64,
   parameter int MAX_OUT_RD = 16,
   parameter int MAX_OUT_WR = 8,
   localparam int NUM_CH = NUM_MM2S + NUM_S2MM,
@@ -52,6 +53,8 @@ module xdma_top_sva #(
   initial begin
     if (2 * NUM_CH >= (1 << ID_W)) $fatal(1, "ID_W=%0d cannot hold walker ID %0d", ID_W, 2 * NUM_CH);
     if (MAX_BURST < 1 || MAX_BURST > 256) $fatal(1, "MAX_BURST=%0d out of range", MAX_BURST);
+    if (FIFO_DEPTH < MAX_BURST) $fatal(1, "FIFO_DEPTH=%0d < MAX_BURST=%0d: no burst could ever issue",
+                                       FIFO_DEPTH, MAX_BURST);
   end
 `endif
   logic past_ok;   // reset was released at least one cycle ago

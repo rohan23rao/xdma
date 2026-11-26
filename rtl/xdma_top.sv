@@ -146,7 +146,7 @@ module xdma_top
   logic [2:0]        ch_err       [NUM_CH];
   logic [31:0]       ch_cur_desc  [NUM_CH];
   logic [31:0]       ch_err_addr  [NUM_CH];
-  logic [7:0]        ev_bytes     [NUM_CH];
+  logic [11:0]       ev_bytes     [NUM_CH];
   logic [NUM_CH-1:0] ev_stall, ev_desc_done, ev_done_irq, ev_err_irq;
 
   xdma_csr #(
@@ -184,7 +184,7 @@ module xdma_top
   logic [19:0]         tlb_vpn [NUM_CH];
   xl_kind_e            tlb_resp_kind;
   logic [19:0]         tlb_resp_ppn;
-  logic                walk_busy, walk_start, walk_write;
+  logic                walk_busy, walk_start, walk_write, walk_stale;
   logic [19:0]         walk_vpn;
   logic [CHW-1:0]      walk_ch;
   logic                ptw_done, ptw_ok, ptw_r, ptw_w;
@@ -225,6 +225,7 @@ module xdma_top
         .tlb_req(tlb_req[c]), .tlb_vpn(tlb_vpn[c]), .tlb_gnt(tlb_gnt[c]),
         .tlb_resp_valid(tlb_resp_valid[c]), .tlb_resp_kind, .tlb_resp_ppn,
         .walk_resp_valid(ptw_done && int'(ptw_ch) == c), .walk_resp_ok(ptw_ok),
+        .walk_resp_stale(walk_stale),
         .walk_resp_ppn(ptw_ppn), .walk_busy,
         .ar_req(rd_req[c]), .ar_addr(rd_addr[c]), .ar_len(rd_len[c]), .ar_gnt(rd_gnt[c]),
         .r_valid(r_data_c), .r_data(m_axi_rdata), .r_resp(m_axi_rresp), .r_last(m_axi_rlast),
@@ -242,6 +243,7 @@ module xdma_top
         .tlb_req(tlb_req[c]), .tlb_vpn(tlb_vpn[c]), .tlb_gnt(tlb_gnt[c]),
         .tlb_resp_valid(tlb_resp_valid[c]), .tlb_resp_kind, .tlb_resp_ppn,
         .walk_resp_valid(ptw_done && int'(ptw_ch) == c), .walk_resp_ok(ptw_ok),
+        .walk_resp_stale(walk_stale),
         .walk_resp_ppn(ptw_ppn), .walk_busy,
         .aw_req(wr_req[S]), .aw_addr(wr_addr[S]), .aw_len(wr_len[S]), .aw_gnt(wr_gnt[S]),
         .w_data(w_src[S]), .w_pop(w_pop[S]),
@@ -292,7 +294,7 @@ module xdma_top
     .resp_valid(tlb_resp_valid), .resp_kind(tlb_resp_kind), .resp_ppn(tlb_resp_ppn),
     .walk_busy, .walk_start, .walk_vpn, .walk_ch, .walk_write,
     .fill_valid(ptw_done && ptw_ok), .fill_vpn(ptw_vpn), .fill_ppn(ptw_ppn),
-    .fill_r(ptw_r), .fill_w(ptw_w),
+    .fill_r(ptw_r), .fill_w(ptw_w), .walk_stale,
     .hit_inc(tlb_hit_inc), .miss_inc(tlb_miss_inc)
   );
 

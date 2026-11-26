@@ -55,6 +55,7 @@ module xdma_rd_chan
   input  logic [19:0]   tlb_resp_ppn,
   input  logic          walk_resp_valid,
   input  logic          walk_resp_ok,
+  input  logic          walk_resp_stale,
   input  logic [19:0]   walk_resp_ppn,
   input  logic          walk_busy,
   // AR request to the arbiter
@@ -73,7 +74,7 @@ module xdma_rd_chan
   output logic [63:0]   m_axis_tdata,
   output logic          m_axis_tlast,
   // events
-  output logic [7:0]    ev_bytes,
+  output logic [11:0]   ev_bytes,
   output logic          ev_stall
 );
 
@@ -101,7 +102,7 @@ module xdma_rd_chan
     .out_valid(xl_valid), .out_ready(xl_ready), .out_pa(xl_pa), .out_va(xl_va),
     .out_beats(xl_beats), .out_last(xl_last), .fault(xl_fault),
     .tlb_req, .tlb_vpn, .tlb_gnt, .tlb_resp_valid, .tlb_resp_kind, .tlb_resp_ppn,
-    .walk_resp_valid, .walk_resp_ok, .walk_resp_ppn, .walk_busy
+    .walk_resp_valid, .walk_resp_ok, .walk_resp_stale, .walk_resp_ppn, .walk_busy
   );
 
   // ------------------------------------------------- reserve-on-issue AR
@@ -213,7 +214,7 @@ module xdma_rd_chan
   assign dp_idle = (outstanding == '0);
 
   // ------------------------------------------------------------- events
-  assign ev_bytes = out_live ? 8'd8 : 8'd0;
+  assign ev_bytes = out_live ? 12'd8 : 12'd0;
   // Stall: a request not granted, a burst blocked on FIFO space, or stream
   // backpressure. Waiting for the per-channel outstanding limit or for a
   // translation is not a stall (D-031).

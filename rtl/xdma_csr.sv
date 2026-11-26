@@ -56,7 +56,7 @@ module xdma_csr #(
   input  logic [31:0]        ch_cur_desc [NUM_CH],
   input  logic [31:0]        ch_err_addr [NUM_CH],
   // per channel events
-  input  logic [7:0]         ev_bytes    [NUM_CH],  // bytes moved this cycle
+  input  logic [11:0]        ev_bytes    [NUM_CH],  // bytes moved this cycle
   input  logic [NUM_CH-1:0]  ev_stall,
   input  logic [NUM_CH-1:0]  ev_desc_done,
   input  logic [NUM_CH-1:0]  ev_done_irq,
@@ -214,7 +214,7 @@ module xdma_csr #(
           ch_ndesc[c]    <= '0;
         end else begin
           // Enable-coded so synthesis can gate the counter clocks.
-          if (ev_bytes[c] != 8'd0)           ch_bytes[c]    <= ch_bytes[c] + 32'(ev_bytes[c]);
+          if (ev_bytes[c] != 12'd0)           ch_bytes[c]    <= ch_bytes[c] + 32'(ev_bytes[c]);
           if (ch_busy[c])                    ch_busy_cyc[c] <= ch_busy_cyc[c] + 1'b1;
           if (ch_busy[c] && ev_stall[c])     ch_stall[c]    <= ch_stall[c] + 1'b1;
           if (ev_desc_done[c])               ch_ndesc[c]    <= ch_ndesc[c] + 1'b1;

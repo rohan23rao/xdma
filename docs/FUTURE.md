@@ -32,3 +32,13 @@ superpages, several outstanding page walks, several AXI IDs per channel for
 data with a reorder buffer, multiple clock domains, data-width conversion,
 interrupt coalescing. None are needed for the v1 use cases; each is listed
 in SPEC.md section 1.
+
+## Pipelined translation stage
+
+With translation on, the one-entry translation stage holds a burst through
+LOOKUP -> RESP -> READY, so one channel issues at most one burst every three
+cycles even on TLB hits. Long bursts hide this (the data takes 16 cycles),
+but 1-beat bursts (8-byte lines) are capped near 33%. A two-entry stage, or
+a lookup issued for the next burst while the current one waits for its
+AR/AW grant, would remove it. The translation-cost experiment in
+RESULTS.md shows the cost for linear and page-per-line access.

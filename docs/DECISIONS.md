@@ -226,3 +226,41 @@ timed out with an MM2S channel busy. cocotbext-axi's sink keeps its `pause`
 flag at the last generated value when its pause generator is replaced, so a
 round could leave TREADY stuck low forever. `env.set_sink_pause()` now
 clears `pause` explicitly; the same seeds pass.
+
+## Step 8 independent review (second fresh reviewer, RTL vs SPEC.md)
+
+**B-008 (review 2.1) TLB_FLUSH undone by a walk in flight (bug).** A flush
+cleared the valid bits, but a page walk already running filled its result
+afterwards; a lookup compared in the flush cycle could also still return
+HIT. Realistic case: the walker has read the level-1 PTE, software repoints
+it at a new level-0 table and flushes, the walker then reads the old
+level-0 table and caches the old physical page. Fix: a lookup compared in
+the flush cycle answers RETRY; a walk that sees a flush while running is
+marked stale, its result is not cached and its channel looks up again.
+`test_tlb_flush` now builds exactly that race; with the fix disabled the
+DMA reads the old page and the test fails, with it the data comes from the
+new page.
+
+**D-048 (review 2.2) ABORT in the cycle a descriptor completes.** Completion
+wins: the descriptor is written back as done (counted, DONE irq if
+CTRL.IRQ), then the channel stops with ABORTED, the same as an ABORT during
+WB / WB_WAIT (D-038). A data error in that cycle still wins over both.
+
+**D-049 (review 2.3) No descriptor read is launched in an ABORT cycle.** The
+prefetch and the post-writeback fetch both ignore a cycle with ABORT or a
+data error, so no spurious AR follows an abort.
+
+**D-050 (review 2.14) Event byte count widened to 12 bits** so MAX_BURST up
+to 256 cannot overflow it; simulation stops at elaboration if
+FIFO_DEPTH < MAX_BURST (no burst could ever issue).
+
+Other review 2 findings were already decided: translation bypass register
+(D-035), stale MM2S beats after a drain (D-037), ID map (D-036), DONE = 1 on
+error writeback (D-039), TLB_STATS (D-041), STALL_CYC (D-031), ERR_ADDR
+(D-042), START with ABORT (D-033), DESC_HEAD low bits (D-040), xdma_top
+glue (D-034). Review 2.16: s_axis_tready, RREADY/BREADY and the AXI-Lite
+outputs come from flops (no combinational path from any input) rather than
+through an xdma_skid instance; the spec's intent, no READY->VALID path and
+registered outputs, holds. Review 2.5 also noted that with translation on a
+single channel issues at most one burst per three cycles (LOOKUP, RESP,
+READY); this caps 1-beat-burst traffic and is listed in FUTURE.md.

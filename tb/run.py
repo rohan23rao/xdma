@@ -36,6 +36,12 @@ TESTS = {
     "test_translate_fault": dict(top="xdma_tb", random=True),
     "test_tlb_flush":       dict(top="xdma_tb", random=True),
     "test_soak":            dict(top="xdma_tb", random=True),
+    # performance tests (spec 16); also regressions with pass thresholds
+    "perf_latency":         dict(top="xdma_tb", random=False),
+    "perf_saturate":        dict(top="xdma_tb", random=False),
+    "perf_desc":            dict(top="xdma_tb", random=False),
+    "perf_xlat":            dict(top="xdma_tb", random=False),
+    "perf_idle":            dict(top="xdma_tb", random=False),
 }
 
 RTL_ORDER = ["xdma_pkg.sv"]
@@ -62,7 +68,8 @@ _RUNNERS = {}
 def build(top, params, cov=False, waves=False, defines=None):
     """Compile one (top, params) configuration; returns (runner, build dir)."""
     defines = dict(defines or {})
-    key = f"{top}|{sorted(params.items())}|cov={cov}|waves={waves}|{sorted(defines.items())}"
+    saif = bool(os.environ.get("XDMA_SAIF"))
+    key = f"{top}|{sorted(params.items())}|cov={cov}|waves={waves}|saif={saif}|{sorted(defines.items())}"
     tag = hashlib.sha1(key.encode()).hexdigest()[:10]
     bdir = TB / "build" / f"{top}_{tag}"
     args = ["--assert", "-Wno-fatal", "-Wno-lint", "-Wno-style",
@@ -70,7 +77,9 @@ def build(top, params, cov=False, waves=False, defines=None):
             "-j", os.environ.get("VERILATOR_JOBS", "4")]
     if cov:
         args += ["--coverage-line", "--coverage-toggle", "--coverage-user"]
-    if waves:
+    if os.environ.get("XDMA_SAIF"):
+        args += ["--trace-saif"]            # switching activity for power analysis
+    elif waves:
         args += ["--trace-fst", "--trace-structs"]
     if bdir in _RUNNERS:
         return _RUNNERS[bdir], bdir
@@ -79,9 +88,10 @@ def build(top, params, cov=False, waves=False, defines=None):
         # Parallel regression workers: the parent already built this config;
         # set up the runner's state without running any build command.
         runner._execute = lambda *a, **k: None
+    # the cocotb runner passes VM_TRACE=<waves> to make, so SAIF needs waves on
     runner.build(sources=sources(), includes=[ROOT / "sva", ROOT / "rtl"],
                  hdl_toplevel=top, parameters=params, defines=defines,
-                 build_args=args, build_dir=bdir, waves=waves,
+                 build_args=args, build_dir=bdir, waves=waves or saif,
                  log_file=None)
     runner.__dict__.pop("_execute", None)
     _RUNNERS[bdir] = runner
@@ -109,8 +119,9 @@ def run_one(test, seed, params=None, cov=False, waves=False, quiet=False, extra_
     if cov:
         plus.append(f"+verilator+coverage+file+{tdir / 'coverage.dat'}")
     try:
+        targs = ["--trace", "--trace-file", os.environ["XDMA_SAIF"]] if os.environ.get("XDMA_SAIF") else []
         xml = runner.test(test_module=test, hdl_toplevel=spec["top"], seed=seed,
-                          build_dir=bdir, test_dir=tdir, plusargs=plus,
+                          build_dir=bdir, test_dir=tdir, plusargs=plus, test_args=targs,
                           extra_env=env, waves=waves, log_file=log if quiet else None,
                           results_xml=str(tdir / "results.xml"))
         ok = results_ok(xml)

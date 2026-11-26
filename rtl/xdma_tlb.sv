@@ -14,6 +14,10 @@
 // prevents a second walk for a page that was just filled, so the TLB never
 // holds two entries for one VPN.
 // Fills use a round-robin replacement pointer. flush clears every valid bit.
+// A flush also wins over anything older: a lookup compared in the flush
+// cycle answers RETRY instead of HIT, and a walk that was in flight when the
+// flush came is marked stale: its result is not cached and its channel is
+// told to look up again (walk_stale), so no pre-flush mapping survives.
 // Stats: a hit counts on HIT or FAULT, a miss counts when a walk starts;
 // RETRY lookups are not counted.
 module xdma_tlb #(
@@ -45,6 +49,7 @@ module xdma_tlb #(
   input  logic [19:0]        fill_ppn,
   input  logic               fill_r,
   input  logic               fill_w,
+  output logic               walk_stale,     // walk in flight saw a flush
   // stats
   output logic               hit_inc,
   output logic               miss_inc
@@ -83,7 +88,7 @@ module xdma_tlb #(
   end
 
   // -------------------------------------------- registered result (cycle 2)
-  logic           l_valid, l_hit, l_r, l_w, fill_q;
+  logic           l_valid, l_hit, l_r, l_w, fill_q, flush_q;
   logic [CHW-1:0] l_ch;
   logic [19:0]    l_vpn, l_ppn;
 
@@ -91,9 +96,11 @@ module xdma_tlb #(
     if (!rst_n) begin
       l_valid <= 1'b0;
       fill_q  <= 1'b0;
+      flush_q <= 1'b0;
     end else begin
       l_valid <= |req;
       fill_q  <= fill_valid;
+      flush_q <= flush;
     end
   end
   always_ff @(posedge clk) begin
@@ -114,32 +121,42 @@ module xdma_tlb #(
     resp_valid = '0;
     resp_valid[l_ch] = l_valid;
     resp_ppn   = l_ppn;
-    if (l_hit)                    resp_kind = perm_ok ? XL_HIT : XL_FAULT;
+    if (flush_q)                  resp_kind = XL_RETRY;   // compared before the flush
+    else if (l_hit)               resp_kind = perm_ok ? XL_HIT : XL_FAULT;
     else if (walk_busy || fill_q) resp_kind = XL_RETRY;
     else                          resp_kind = XL_WALK;
   end
 
-  assign walk_start = l_valid && !l_hit && !walk_busy && !fill_q;
+  assign walk_start = l_valid && !l_hit && !walk_busy && !fill_q && !flush_q;
   assign walk_vpn   = l_vpn;
   assign walk_ch    = l_ch;
   assign walk_write = l_write;
-  assign hit_inc    = l_valid && l_hit;
+  assign hit_inc    = l_valid && l_hit && !flush_q;
   assign miss_inc   = walk_start;
 
   // ---------------------------------------------------------------- fill
+  // A walk is stale if a flush happened at any point while it was running.
+  logic stale_q;
+  always_ff @(posedge clk) begin
+    if (!rst_n || walk_start) stale_q <= 1'b0;
+    else if (flush && walk_busy) stale_q <= 1'b1;
+  end
+  assign walk_stale = stale_q || flush;
+  wire do_fill = fill_valid && !walk_stale;
+
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       e_valid <= '0;
       repl    <= '0;
     end else if (flush) begin
       e_valid <= '0;
-    end else if (fill_valid) begin
+    end else if (do_fill) begin
       e_valid[repl] <= 1'b1;
       repl <= (repl == EW'(ENTRIES - 1)) ? '0 : repl + 1'b1;
     end
   end
   always_ff @(posedge clk) begin
-    if (fill_valid) begin
+    if (do_fill) begin
       e_vpn[repl] <= fill_vpn;
       e_ppn[repl] <= fill_ppn;
       e_r[repl]   <= fill_r;

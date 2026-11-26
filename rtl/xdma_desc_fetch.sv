@@ -100,7 +100,8 @@ module xdma_desc_fetch
 
   // Prefetch the next descriptor while the current one runs.
   wire want_prefetch = (PREFETCH_EN != 0) && !cur.last && !sh_valid && !fetch_busy &&
-                       !abort_pend && (state == S_RUN || state == S_WB || state == S_WB_WAIT);
+                       !abort_pend && !abort && !dp_err &&
+                       (state == S_RUN || state == S_WB || state == S_WB_WAIT);
 
   assign ar_req  = fetch_req;
   assign ar_addr = fetch_addr;
@@ -179,7 +180,7 @@ module xdma_desc_fetch
       launch_fetch = 1'b1;
       launch_addr  = desc_head;
     end else if (state == S_WB_WAIT && b_valid && b_resp == RESP_OKAY && !cur.last &&
-                 !abort_pend && !sh_valid && !fetch_busy) begin
+                 !abort_pend && !abort && !sh_valid && !fetch_busy) begin
       launch_fetch = 1'b1;                 // no prefetch happened: fetch now
     end else if (want_prefetch) begin
       launch_fetch = 1'b1;
@@ -242,12 +243,20 @@ module xdma_desc_fetch
         end
 
         S_RUN: begin
-          if (dp_err || abort) begin
-            pend_err  <= dp_err ? dp_err_code : ERR_ABORTED;
-            pend_addr <= dp_err ? dp_err_addr : cur_addr;
+          // A data error wins. Otherwise completion wins over an ABORT in
+          // the same cycle: the descriptor is written back as done and the
+          // abort takes effect after the writeback (as in WB / WB_WAIT).
+          if (dp_err) begin
+            pend_err  <= dp_err_code;
+            pend_addr <= dp_err_addr;
             state     <= S_DRAIN;
           end else if (dp_done) begin
+            if (abort) abort_pend <= 1'b1;
             state <= S_WB;
+          end else if (abort) begin
+            pend_err  <= ERR_ABORTED;
+            pend_addr <= cur_addr;
+            state     <= S_DRAIN;
           end
         end
 
