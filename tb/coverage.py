@@ -59,6 +59,7 @@ def main():
     ap.add_argument("--seeds", type=int, default=10)
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--no-run", action="store_true", help="only merge existing results")
+    ap.add_argument("--keep-runs", action="store_true", help="keep per-run coverage.dat files")
     a = ap.parse_args()
     OUT.mkdir(exist_ok=True)
     ok = True
@@ -70,10 +71,18 @@ def main():
     dats = sorted(ROOT.glob("tb/build/*/runs/*/coverage.dat"))
     funcs = sorted(ROOT.glob("tb/build/*/runs/*/func_cov.json"))
     merged = OUT / "coverage_merged.dat"
-    subprocess.run(["verilator_coverage", "--write", str(merged)] + [str(d) for d in dats],
-                   check=True, capture_output=True)
+    if dats:
+        subprocess.run(["verilator_coverage", "--write", str(merged)] + [str(d) for d in dats],
+                       check=True, capture_output=True)
+    elif not merged.exists():
+        raise SystemExit("no coverage databases found: run without --no-run")
     subprocess.run(["verilator_coverage", "--annotate", str(OUT / "cov_annotate"), str(merged)],
                    capture_output=True)
+    # the per-run databases are large (they filled the disk once: T-007);
+    # everything needed is now in the merged file
+    if not a.keep_runs:
+        for d in dats:
+            d.unlink()
     pts = parse_dat(merged)
 
     excl = []
@@ -104,8 +113,14 @@ def main():
     ch, ct, cmiss = frac("v_user", lambda f: True)
 
     hits = collections.defaultdict(set)
-    for fpath in funcs:
-        for k, v in json.load(open(fpath)).items():
+    fmerged = OUT / "func_merged.json"
+    if funcs:
+        for fpath in funcs:
+            for k, v in json.load(open(fpath)).items():
+                hits[k] |= set(v)
+        json.dump({k: sorted(v) for k, v in hits.items()}, open(fmerged, "w"), indent=1)
+    elif fmerged.exists():
+        for k, v in json.load(open(fmerged)).items():
             hits[k] |= set(v)
     func_total = sum(len(v) for v in BINS.values())
     func_hit = sum(len(hits[k] & {str(b) for b in v}) for k, v in BINS.items())

@@ -85,7 +85,7 @@ flowchart LR
 | Achieved clock (Yosys + OpenSTA, ASAP7, post-synthesis) | 1.00 GHz (1000 ps, WNS +46.1 ps) | `make syn` |
 | Standard-cell area | 17,025 µm² (clock gating off); 12,776 µm² (clock gating on) | `make syn` (Yosys stat, ASAP7 liberty) |
 | Total power at target clock (perf_saturate activity) | 8.69 mW with clock gating, 37.96 mW without | `make syn` (OpenSTA, SAIF) |
-| Gate-level simulation | not run | `make gls` |
+| Gate-level simulation (ASAP7 netlist, zero delay, seed 1) | clock gating off: test_loopback_copy pass (1,483 cycles), test_all_channels pass (10,313 cycles); clock gating on: test_loopback_copy pass (1,483 cycles), test_all_channels pass (10,313 cycles) | `make gls` |
 | RTL bugs found and fixed | 8 (B-001 to B-008; root causes in docs/DECISIONS.md) | docs/DECISIONS.md |
 | Regression | default: 3,401/3,401 runs pass (18 tests, up to 200 seeds each); FIFO_DEPTH=32, MAX_OUT_CH=4, MAX_BURST=8: 801/801 runs pass (17 tests, up to 50 seeds each); PREFETCH_EN=0: 801/801 runs pass (17 tests, up to 50 seeds each) | `make regress SEEDS=N` |
 | Formal | 12/12 tasks pass: 7/7 unbounded proofs, 5/5 cover sets reached; w_mux proven at reduced size (2 writes in flight, 1-4 beat bursts), full size in simulation | `make formal` |
