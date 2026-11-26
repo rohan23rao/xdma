@@ -194,9 +194,13 @@ the output skid are still delivered (VALID cannot be withdrawn); the packet
 is left without TLAST. Software that aborts a packet must resynchronize the
 consumer. The spec does not define this.
 
-**D-038 (review 8) ABORT during WB / WB_WAIT.** The writeback in flight
-completes normally (descriptor written back DONE, counted, DONE irq if
-CTRL.IRQ), then the channel stops with ERR = ABORTED and the ERROR bit.
+**D-038 (review 8, updated by review 3.2) ABORT during WB / WB_WAIT.** The
+writeback in flight completes normally (descriptor written back DONE,
+counted, DONE irq if CTRL.IRQ). If that descriptor was LAST the chain is
+complete and the ABORT has nothing left to stop: the channel finishes with
+ERR = NONE. Otherwise the channel stops before the next descriptor with
+ERR = ABORTED, and ERR_ADDR / CUR_DESC name that next (not started)
+descriptor, as an ABORT in FETCH does.
 
 **D-039 (review 9) Error writeback sets DONE = 1 with ERR != 0:** the engine
 is finished with that descriptor; ERR says how. Software must check ERR.
@@ -285,3 +289,35 @@ through an xdma_skid instance; the spec's intent, no READY->VALID path and
 registered outputs, holds. Review 2.5 also noted that with translation on a
 single channel issues at most one burst per three cycles (LOOKUP, RESP,
 READY); this caps 1-beat-burst traffic and is listed in FUTURE.md.
+
+## Step 11 independent review (third fresh reviewer, RTL vs SPEC.md v1.1)
+
+No deadlock, data loss or protocol violation found. Changes made:
+
+**D-051 (review 3.1) MM2S byte counts only count beats delivered while the
+descriptor runs.** Beats that leave the output skid during DRAIN or after
+the flush are still delivered (VALID cannot be withdrawn, D-037) but are no
+longer counted, so CSR BYTES, the descriptor's STATUS.BYTES and the
+written-back status agree after an abort or error. Before, beats leaving in
+the drain-exit and flush cycles were in BYTES but not in STATUS.BYTES.
+
+**D-052 (review 3.2) ABORT after the last data of a chain has no effect**,
+and an ABORT between descriptors reports the next, not-started descriptor
+(D-038).
+
+**D-053 (review 3.3) DRAIN waits for a page walk owned by the channel.** A
+channel whose translation stage had started a walk could finish DRAIN and
+report idle while the walker still issued PTE reads for it; software may
+then change PT_ROOT or the page tables under the spec 5.1 "all channels
+idle" rule. The translation stage now keeps `walk_pending` until the walker
+answers (even after the stage is aborted), and the data path is idle only
+when that flag is clear.
+
+Review 3.9: simulation also stops at elaboration if NUM_CH > 8 (IRQ bits
+[c] and [8+c] would overlap). Review 3.10: the writeback-capture comment in
+xdma_desc_fetch now states the real (zero-cycle) margin. Review 3.12: SPEC
+section 4 cross-reference fixed. Reviews 3.4-3.8 and 3.11 restate decided
+choices: D-039 (DONE = 1 on error writeback), D-033 (START with ABORT),
+D-042 (ERR_ADDR), D-041 (TLB_STATS), D-035 (bypass register), D-036
+(fixed ADDR_W/DATA_W), review 2.16 (registered outputs not all through
+xdma_skid).

@@ -189,7 +189,7 @@ module xdma_wr_chan
   );
 
   // --------------------------------------------------------- translation
-  logic          xl_valid, xl_ready, xl_last, xl_fault;
+  logic          xl_valid, xl_ready, xl_last, xl_fault, xl_walk;
   logic [31:0]   xl_pa, xl_va;
   logic [BW-1:0] xl_beats;
 
@@ -197,7 +197,7 @@ module xdma_wr_chan
     .clk, .rst_n, .translate_en, .abort(dp_drain),
     .in_valid(ag_valid), .in_ready(ag_ready), .in_va(ag_va), .in_beats(ag_beats), .in_last(ag_last),
     .out_valid(xl_valid), .out_ready(xl_ready), .out_pa(xl_pa), .out_va(xl_va),
-    .out_beats(xl_beats), .out_last(xl_last), .fault(xl_fault),
+    .out_beats(xl_beats), .out_last(xl_last), .fault(xl_fault), .walk_pending(xl_walk),
     .tlb_req, .tlb_vpn, .tlb_gnt, .tlb_resp_valid, .tlb_resp_kind, .tlb_resp_ppn,
     .walk_resp_valid, .walk_resp_ok, .walk_resp_stale, .walk_resp_ppn, .walk_busy
   );
@@ -271,7 +271,7 @@ module xdma_wr_chan
   end
 
   assign dp_done = b_ok && bq_last && dp_run && !err_seen;
-  assign dp_idle = (outstanding == '0);
+  assign dp_idle = (outstanding == '0) && !xl_walk;
 
   always_ff @(posedge clk) begin
     if (!rst_n || dp_start) dp_bytes <= '0;

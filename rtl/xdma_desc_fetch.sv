@@ -275,13 +275,18 @@ module xdma_desc_fetch
             end else begin
               ev_desc_done <= 1'b1;
               ev_done_irq  <= cur.irq;
-              if (abort || abort_pend) begin
-                pend_err  <= ERR_ABORTED;
-                pend_addr <= cur_addr;
-                state     <= S_FINISH;
-              end else if (cur.last) begin
+              if (cur.last) begin
+                // the chain is complete: an ABORT that arrived after its
+                // last data has nothing left to stop (D-038)
                 pend_err <= ERR_NONE;
                 state    <= S_FINISH;
+              end else if (abort || abort_pend) begin
+                // stopped before the next descriptor: report that one, as
+                // an ABORT in FETCH does
+                cur_addr  <= cur.next;
+                pend_err  <= ERR_ABORTED;
+                pend_addr <= cur.next;
+                state     <= S_FINISH;
               end else begin
                 cur_addr <= cur.next;
                 state    <= S_FETCH;
@@ -323,9 +328,11 @@ module xdma_desc_fetch
 
   // Status word: [0] DONE, [3:1] ERR, [63:32] BYTES. The error writeback
   // also sets DONE = 1: the engine is finished with this descriptor.
-  // Captured in WB (not on dp_done): the data path counts the final beat in
-  // the same cycle it raises dp_done. The W mux reads wb_data only after the
-  // AW has been granted and accepted on the bus, at least two cycles later.
+  // Captured in every WB cycle (not on dp_done: the data path counts the
+  // final beat in the same cycle it raises dp_done). The writeback AW can be
+  // granted in the first WB cycle; the W-order queue is pushed on that grant
+  // and the W mux reads wb_data from the next cycle on, when this register
+  // already holds the value captured in that first WB cycle.
   always_ff @(posedge clk) begin
     if (state == S_WB)
       wb_data <= {dp_bytes, 28'b0, ERR_NONE, 1'b1};

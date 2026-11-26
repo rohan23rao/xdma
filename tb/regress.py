@@ -44,7 +44,9 @@ def main():
     ap.add_argument("--cov", action="store_true")
     ap.add_argument("--tag", default="")
     a = ap.parse_args()
-    tests = a.tests.split(",") if a.tests else [t for t in run.TESTS if not t.startswith("perf_")]
+    # perf_* tests run under `make perf`, gate-level sims under `make gls`
+    tests = a.tests.split(",") if a.tests else [t for t, v in run.TESTS.items()
+                                                 if not t.startswith("perf_") and not v.get("gls")]
     params = run.parse_params(a.params)
     # Build every configuration once, serially.
     for t in tests:

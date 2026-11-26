@@ -92,7 +92,7 @@ module xdma_rd_chan
   );
 
   // --------------------------------------------------------- translation
-  logic          xl_valid, xl_ready, xl_last, xl_fault;
+  logic          xl_valid, xl_ready, xl_last, xl_fault, xl_walk;
   logic [31:0]   xl_pa, xl_va;
   logic [BW-1:0] xl_beats;
 
@@ -100,7 +100,7 @@ module xdma_rd_chan
     .clk, .rst_n, .translate_en, .abort(dp_drain),
     .in_valid(ag_valid), .in_ready(ag_ready), .in_va(ag_va), .in_beats(ag_beats), .in_last(ag_last),
     .out_valid(xl_valid), .out_ready(xl_ready), .out_pa(xl_pa), .out_va(xl_va),
-    .out_beats(xl_beats), .out_last(xl_last), .fault(xl_fault),
+    .out_beats(xl_beats), .out_last(xl_last), .fault(xl_fault), .walk_pending(xl_walk),
     .tlb_req, .tlb_vpn, .tlb_gnt, .tlb_resp_valid, .tlb_resp_kind, .tlb_resp_ppn,
     .walk_resp_valid, .walk_resp_ok, .walk_resp_stale, .walk_resp_ppn, .walk_busy
   );
@@ -192,7 +192,11 @@ module xdma_rd_chan
   assign skid_full = !s_ready;     // skid entry occupied
 
   wire out_hs   = m_axis_tvalid && m_axis_tready;
-  wire out_live = out_hs && (stale_cnt == 2'd0);
+  // Bytes are counted only for beats delivered while the descriptor runs,
+  // so BYTES, the status writeback and the stream agree after an abort or
+  // error: beats that leave during DRAIN or after the flush are delivered
+  // (VALID cannot be withdrawn) but not counted (D-051).
+  wire out_live = out_hs && (stale_cnt == 2'd0) && dp_run;
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -204,14 +208,14 @@ module xdma_rd_chan
     end
   end
 
-  assign dp_done = out_live && o_tag && dp_run;
+  assign dp_done = out_live && o_tag;
 
   always_ff @(posedge clk) begin
     if (!rst_n || dp_start) dp_bytes <= '0;
     else if (out_live)      dp_bytes <= dp_bytes + 32'd8;
   end
 
-  assign dp_idle = (outstanding == '0);
+  assign dp_idle = (outstanding == '0) && !xl_walk;
 
   // ------------------------------------------------------------- events
   assign ev_bytes = out_live ? 12'd8 : 12'd0;

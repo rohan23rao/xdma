@@ -52,6 +52,7 @@ module xdma_top_sva #(
   // Elaboration checks on the parameters (spec 3, 9.1).
   initial begin
     if (2 * NUM_CH >= (1 << ID_W)) $fatal(1, "ID_W=%0d cannot hold walker ID %0d", ID_W, 2 * NUM_CH);
+    if (NUM_CH > 8) $fatal(1, "NUM_CH=%0d: IRQ bits [c] and [8+c] would overlap", NUM_CH);
     if (MAX_BURST < 1 || MAX_BURST > 256) $fatal(1, "MAX_BURST=%0d out of range", MAX_BURST);
     if (FIFO_DEPTH < MAX_BURST) $fatal(1, "FIFO_DEPTH=%0d < MAX_BURST=%0d: no burst could ever issue",
                                        FIFO_DEPTH, MAX_BURST);

@@ -38,6 +38,7 @@ module xdma_xlat_stage
   output logic [BW-1:0] out_beats,
   output logic          out_last,
   output logic          fault,
+  output logic          walk_pending,      // walker busy on this channel's behalf
   // TLB lookup
   output logic          tlb_req,
   output logic [19:0]   tlb_vpn,
@@ -60,6 +61,19 @@ module xdma_xlat_stage
   assign fault     = (st == X_FAULT);
   assign tlb_req   = (st == X_LOOKUP);
   assign tlb_vpn   = out_va[31:12];
+
+  // A walk started for this channel stays pending until the walker answers,
+  // even if the stage is aborted meanwhile, so a draining channel can wait
+  // for it and never reports idle while the walker still reads on its
+  // behalf (D-053).
+  always_ff @(posedge clk) begin
+    if (!rst_n)                     walk_pending <= 1'b0;
+    else if (walk_resp_valid)       walk_pending <= 1'b0;
+    // resp_valid is per channel: a WALK answer here means the walker now
+    // works for this channel, even if the stage is aborting this cycle
+    else if (tlb_resp_valid && tlb_resp_kind == XL_WALK)
+                                    walk_pending <= 1'b1;
+  end
   assign in_ready  = !abort && ((st == X_EMPTY) || (st == X_READY && out_ready));
 
   wire load = in_valid && in_ready;

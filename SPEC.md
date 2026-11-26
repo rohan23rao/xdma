@@ -124,7 +124,7 @@ Single clock `clk`, active-low synchronous reset `rst_n`. All AXI signals use st
 
 Stream ports are packed arrays, e.g. `m_axis_tdata[NUM_MM2S][63:0]`.
 
-Fixed AXI field values: `size = 3'b011` (8 bytes), `burst = 2'b01` (INCR), `cache = 4'b0011`, `prot = 3'b000`, `lock = 0`, `qos = 0`. `WSTRB` is all ones except for the 8-byte descriptor status writeback, which uses a full-beat write (section 7.3).
+Fixed AXI field values: `size = 3'b011` (8 bytes), `burst = 2'b01` (INCR), `cache = 4'b0011`, `prot = 3'b000`, `lock = 0`, `qos = 0`. `WSTRB` is all ones except for the 8-byte descriptor status writeback, which uses a full-beat write (section 7.1).
 
 **AXI rules every master output must obey:** once VALID is high, it stays high and the payload is stable until READY. No combinational path from any READY input to any VALID output. Register every AXI and AXI-Stream output through a skid buffer (`xdma_skid`).
 
