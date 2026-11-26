@@ -141,6 +141,14 @@ def main():
     else:
         out += [f"| Achieved clock | {NOT_RUN} | `make syn` |", f"| Standard-cell area | {NOT_RUN} | `make syn` |",
                 f"| Total power at target clock | {NOT_RUN} | `make syn` |"]
+    gls_p = ROOT / "tb/out/gls.json"
+    gls = json.load(open(gls_p)) if gls_p.exists() else None
+    if gls:
+        out.append("| Gate-level simulation (zero delay, test_loopback_copy) | " +
+                   "; ".join(f"{k}: {'pass' if v['passed'] else 'FAIL'} (seed {v['seed']}, {v['sim_ns'] / 10:.0f} cycles)"
+                             for k, v in gls.items()) + " | `make gls` |")
+    else:
+        out.append(f"| Gate-level simulation | {NOT_RUN} | `make gls` |")
     if reg:
         parts = []
         for tag, rs in reg.items():

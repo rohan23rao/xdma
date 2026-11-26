@@ -42,7 +42,7 @@ syn:
 	$(PY) syn/yosys/run_syn.py
 
 gls:
-	$(PY) tb/run.py --test gls_loopback_copy --seed $(or $(SEED),1)
+	$(PY) tools/run_gls.py --seed $(or $(SEED),1)
 
 perf:
 	$(PY) perf/run_perf.py --jobs $(JOBS)
