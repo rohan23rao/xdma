@@ -29,6 +29,44 @@ def pct(x):
     return f"{100 * float(x):.1f}%"
 
 
+def flop_names(netlist):
+    """{'inst/path/_123_': 'inst/path/<Q net>'} for every flop in the netlist,
+    so timing endpoints read as RTL register names."""
+    names = {}
+    if not netlist.exists():
+        return names
+    mod = None
+    cell = None
+    for line in open(netlist):
+        m = re.match(r"module \\?(\S+)", line)
+        if m:
+            name = m.group(1)
+            mod = name.split("$xdma_top.", 1)[1].replace(".u_", "/u_", 1) if "$xdma_top." in name else ""
+            # instance path as OpenSTA prints it: generate prefix joined by '.',
+            # then '/' between instances
+            if "$xdma_top." in name:
+                parts = name.split("$xdma_top.", 1)[1].split(".")
+                inst, path = [], []
+                for p in parts:
+                    inst.append(p)
+                    if not p.startswith("g_"):
+                        path.append(".".join(inst))
+                        inst = []
+                mod = "/".join(path)
+            continue
+        m = re.match(r"\s+(DFF\S+|ICG\S+)\s+(\S+)\s+\(", line)
+        if m:
+            cell = m.group(2)
+            continue
+        m = re.match(r"\s+\.QN?\((.+)\)", line)
+        if m and cell:
+            net = m.group(1).strip()
+            key = f"{mod}/{cell}" if mod else cell
+            names[key] = (f"{mod}/{net}" if mod else net) + (" (inverted)" if ".QN(" in line else "")
+            cell = None
+    return names
+
+
 def git_rev():
     try:
         return subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True,
@@ -252,9 +290,25 @@ def main():
         if rpt.exists():
             txt = rpt.read_text()
             paths = re.findall(r"Startpoint: (\S+).*?Endpoint: (\S+).*?\n\s+(-?[0-9.]+)\s+slack", txt, re.S)
-            out += ["### Top 10 timing paths at the final period", "", "| # | Startpoint | Endpoint | Slack (ps) |",
-                    "|---|---|---|---|"]
-            out += [f"| {i + 1} | `{a}` | `{b}` | {float(s):+.1f} |" for i, (a, b, s) in enumerate(paths[:10])]
+            regs = flop_names(ROOT / "syn/out/netlist_final_nocg.v")
+            out += ["### Top 10 timing paths at the final period", "",
+                    "Flop instances are mapped back to the RTL register they implement (from the "
+                    "netlist's Q nets).", "",
+                    "| # | Startpoint | Endpoint | Slack (ps) |", "|---|---|---|---|"]
+            out += [f"| {i + 1} | `{regs.get(a, a)}` | `{regs.get(b, b)}` | {float(s):+.1f} |"
+                    for i, (a, b, s) in enumerate(paths[:10])]
+            ends = [regs.get(b, b) for _, b, _ in paths[:10]]
+            if sum("u_ag/line_addr" in e for e in ends) >= 4:
+                out += ["", "Explanation: the critical paths are the address generator's burst "
+                        "computation (spec 17.3): from a line-address bit through the 32-bit "
+                        "`line_addr + offset` add, the distance to the next 4 KB boundary and the "
+                        "three-way `min()`, whose result selects whether `line_addr` advances by "
+                        "STRIDE, into the top bits of `line_addr`. One such path per channel. "
+                        "Registering the burst length would remove it at the cost of one cycle per "
+                        "burst."]
+            if any("ch_bytes" in e for e in ends):
+                out += ["The `m_axi_bvalid` -> `ch_bytes` path is an S2MM B response (input delay "
+                        "20% of the period) adding the burst's bytes to the 32-bit BYTES counter."]
             out += ["", "Full report: `syn/out/timing_paths_final_nocg.rpt` (after `make syn`). "
                     "Discussion: docs/DESIGN_WALKTHROUGH.md section 10.", ""]
     else:

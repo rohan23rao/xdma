@@ -422,26 +422,39 @@ is the AXI rule this engine relies on for every master output. Proven:
 output stable while stalled, conservation (beats in − beats out =
 occupancy), order. Full throughput with no bubble.
 
-**Area reality.** The four 64-beat data FIFOs dominate the area (see
-RESULTS.md). A real implementation would use SRAM macros. The critical
-path after synthesis starts at an addr_gen register and ends inside
-addr_gen (section 10), while the FIFO read mux was the worst path until
-ABC was allowed to buffer the read-pointer fanout.
+**Area reality.** The FIFOs are 77% of the 17,018 µm² standard-cell area,
+almost all of it the four 64 × 64-66-bit data FIFOs built from flops. A
+real implementation would use SRAM macros. The FIFO read mux was the worst
+path until ABC was allowed to buffer the read-pointer fanout; after that,
+the critical path is in addr_gen (section 10).
 
 ---
 
 ## 10. Synthesis and timing (Yosys + OpenSTA, ASAP7, post-synthesis)
 
-The full numbers (Fmax, area per block, FIFO share, power with and without
-clock gating, top-10 paths) are in `results/RESULTS.md`, produced by
-`make syn`. The most instructive problem was fanout. The first Yosys
-netlist failed by more than 5 ns at 1 GHz. The reason: the FIFO read
-pointer drove a 64:1 mux across 66 bits (about 670 fF) and plain ABC
-mapping inserts no buffers. Adding ABC's buffer, upsize and downsize steps
-(the same steps OpenROAD-flow-scripts uses for ASAP7) fixed it. The
-remaining critical path at 950 ps is inside addr_gen: line offset, then
-address add, then the 4 KB distance, then the three-way `min()`, then the
-next offset register. That is the path spec 17.3 predicted.
+Results (`make syn`, details in `results/RESULTS.md`): **1.0 GHz** (1000 ps
+passes with +46 ps of slack; 950 ps fails by 3.9 ps), **17,018 µm²** without
+clock gating and 12,771 µm² with it. The FIFOs are **77%** of the area.
+Power with all four channels saturating is 37.9 mW without clock gating
+and 8.7 mW with it. Idle power is 29.3 mW without clock gating and 2.0 mW
+with it.
+
+Two findings are instructive.
+
+- *Fanout.* The first Yosys netlist failed by more than 5 ns at 1 GHz. The
+  FIFO read pointer drove a 64:1 mux across 66 bits (about 670 fF), and
+  plain ABC mapping inserts no buffers. Adding ABC's buffer, upsize and
+  downsize steps (the same ones OpenROAD-flow-scripts uses for ASAP7) fixed
+  it.
+- *The critical path is where the spec predicted.* It runs from a
+  line-address bit through the 32-bit `line_addr + offset` add, the
+  distance to the 4 KB boundary and the three-way `min()`, which selects
+  whether `line_addr` advances by STRIDE. There is one such path per
+  channel.
+- *Clock gating.* Every wide register is enable-coded, so Yosys `clockgate`
+  can replace the enable muxes with ASAP7 ICG cells. That removes about 25%
+  of the area (the muxes) and about 77% of active power, nearly all of it
+  flop clock-pin power.
 
 **Likely questions**
 1. *How would you raise Fmax?* Register the burst length out of addr_gen,
@@ -449,9 +462,10 @@ next offset register. That is the path spec 17.3 predicted.
    2 or more beats. Then pipeline the FIFO read with SRAM-style registered
    outputs.
 2. *Why do flops dominate power?* Without clock gating every flop burns
-   clock-pin power each cycle, and about half the area is sequential. The
-   enable-style coding lets synthesis insert ICGs; RESULTS.md shows the
-   difference.
+   clock-pin power every cycle, busy or not. That is why idle power (29 mW)
+   is close to active power (38 mW). With ICGs, a FIFO entry's flops clock
+   only when that entry is written: active power falls to 8.7 mW and idle
+   power to 2 mW.
 3. *Post-synthesis versus post-route?* These numbers have ideal clocks and
    no wire parasitics. Expect post-route Fmax to drop once clock skew and
    wire RC are included.

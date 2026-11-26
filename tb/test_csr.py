@@ -3,6 +3,7 @@ byte strobes, unmapped addresses, START gating and the irq pin."""
 import cocotb
 from cocotb.triggers import ClockCycles
 
+import fcov
 from common import TIMEOUT, fail, params, rng
 from env import (BUSY_CYC, BYTES, CAPS, CTRL, CUR_DESC, CYCLES, DESC_HEAD, ERR_ADDR, GCTRL, ID,
                  IRQ_MASK, IRQ_STATUS, PT_ROOT, STALL_CYC, STATUS, TLB_STATS, XdmaEnv, ch_base)
@@ -95,6 +96,7 @@ async def test_csr(dut):
     for c in range(n):
         st = await env.wait_idle(c)
         expect(f"ch{c} STATUS.ERR", (st >> 1) & 7, ERR_DESC_INVALID)
+        fcov.sample("err_code", (st >> 1) & 7)
         expect(f"ch{c} ERR_ADDR", await env.ch_rd(c, ERR_ADDR), 0x2000 + 0x100 * c)
     err_bits = sum(1 << (8 + c) for c in range(n))
     expect("IRQ_STATUS errors", await env.rd(IRQ_STATUS), err_bits)

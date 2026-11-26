@@ -14,6 +14,7 @@ bad page, earlier descriptors complete, error writeback on the faulting one.
 """
 import cocotb
 
+import fcov
 from common import TIMEOUT, fail, params, rand_mem_cfg, rng
 from env import IRQ_STATUS, XdmaEnv
 from models.axi_mem import DECERR, SLVERR
@@ -91,6 +92,9 @@ async def test_translate_fault(dut):
                 for ch in range(p["NUM_CH"]) if ch != c}
         jobs[c] = bad = ChannelJob(env, c, chain, xlat=xs.xlat)
         dut._log.info(f"{kind}: ch{c}, fault in descriptor {k} at VA {fva:#x}")
+        fcov.sample("tlb", {"l0_invalid": "fault_invalid", "l1_invalid": "fault_invalid",
+                            "megapage": "fault_megapage", "perm": "fault_perm",
+                            "perm_hit": "fault_perm"}.get(kind, "miss"))
         ar0 = len(env.axi.ar_log)
         before = env.mem.snapshot()
         tasks = [cocotb.start_soon(j.run()) for j in jobs.values()]

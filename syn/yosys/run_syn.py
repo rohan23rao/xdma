@@ -100,9 +100,15 @@ def area_by_block(tag):
              for m in re.finditer(r"Chip area for module '\\?([^']+)': ([0-9.]+)", txt)}
     hier = txt[txt.index("=== design hierarchy ==="):].splitlines()
     nodes = []          # (depth, name)
+    started = False
     for line in hier:
+        # the tree ends at the first blank line after it starts; the cell
+        # list that follows also names submodules and must not be parsed
+        if started and not line.strip():
+            break
         m = re.match(r"^\s+\d+\s+\S+ (\s*)(\S+)$", line)
         if m and m.group(2) in local:
+            started = True
             nodes.append((len(m.group(1)) // 2, m.group(2)))
     blocks, fifo, stack = {}, 0.0, []
     for depth, name in nodes:

@@ -108,7 +108,10 @@ def build(top, params, cov=False, waves=False, defines=None, gls=False):
         runner._execute = lambda *a, **k: None
     # the cocotb runner passes VM_TRACE=<waves> to make, so SAIF needs waves on
     if gls:
-        args = args + ["-Wno-SPECIFYIGN", "--no-timing"]
+        # a ~100k-cell netlist: split the generated C++ and compile it
+        # without optimization, or cc1plus needs more than 7 GB per file
+        args = args + ["-Wno-SPECIFYIGN", "--no-timing", "--output-split", "5000",
+                       "--output-split-cfuncs", "500", "-MAKEFLAGS", "OPT_FAST=-O0 OPT_SLOW=-O0 OPT_GLOBAL=-O0"]
     runner.build(sources=gls_sources() if gls else sources(), includes=[ROOT / "sva", ROOT / "rtl"],
                  hdl_toplevel=top, parameters=params, defines=defines,
                  build_args=args, build_dir=bdir, waves=waves or saif,

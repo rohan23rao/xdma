@@ -12,8 +12,14 @@ for the old descriptor when its B returns. Today the 7.1 state machine
 serializes them (DECISIONS.md D-045), so every descriptor boundary costs one
 writeback round trip plus one first-read latency.
 
-Motivation (measured): see the descriptor-overhead experiment in
-RESULTS.md (64 x 64 B descriptors vs. one 4 KB descriptor).
+Motivation (measured by `make perf`, perf_desc, memory latency 50; see
+RESULTS.md): the gap between consecutive descriptors on the stream is 114
+cycles with prefetch (167 without). A chain of 64 x 64 B descriptors
+reaches 6.5% bandwidth utilization, against 71.6% for the same 4 KB in one
+descriptor. At a 64 B payload, the 8 cycles of data sit inside a gap of
+about two memory round trips: one for the status writeback, one for the
+next descriptor's first read. Overlapping the writeback with the next
+descriptor's reads would remove the first round trip.
 
 What it needs: per-descriptor tags on data-path completion and byte counts,
 a small completion queue in the controller, and error handling that can

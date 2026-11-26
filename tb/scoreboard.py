@@ -10,6 +10,8 @@ the reference model:
 """
 import cocotb
 
+import fcov
+
 from common import fail
 from env import BYTES, CUR_DESC, IRQ_STATUS, STATUS
 from models.ref_model import (ERR_NAMES, ERR_NONE, predict_mm2s, predict_s2mm, status_word)
@@ -47,6 +49,7 @@ class ChannelJob:
                                 mem.write(pa, bytes(rng.getrandbits(8) for _ in range(n)))
                             off += n
             self.exp = predict_mm2s(mem.read, chain, xlat, self.max_burst)
+        fcov.sample_chain(chain, self.max_burst)
         self.mon_start = len(env.mons[c].beats) if not self.write else 0
         self.dest_before = {a: mem.read(a, 1)[0] for a in self.exp.writes} if self.write else {}
 
@@ -151,6 +154,7 @@ async def check_error(env, job, err, k, err_addr=None, writeback=True):
     from models.ref_model import ERR_NAMES
     c, tag = job.c, f"ch{job.c}"
     got_err = (job.st >> 1) & 7
+    fcov.sample("err_code", got_err)
     if got_err != err:
         fail(f"{tag}: STATUS.ERR={ERR_NAMES[got_err]}, expected {ERR_NAMES[err]}")
     if job.st >> 8 != k:

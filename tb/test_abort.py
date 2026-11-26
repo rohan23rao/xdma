@@ -15,6 +15,7 @@ then run a normal chain correctly.
 import cocotb
 from cocotb.triggers import RisingEdge
 
+import fcov
 from common import TIMEOUT, fail, params, rand_mem_cfg, rng
 from env import IRQ_STATUS, XdmaEnv
 from models.desc_builder import Allocator, DescBuilder
@@ -75,6 +76,7 @@ async def test_abort(dut):
                     await RisingEdge(dut.clk)
                 await env.abort(c)
             state_at_abort = env.ch_state(c)
+            fcov.sample("abort_state", {1: "FETCH", 2: "RUN", 5: "DRAIN"}.get(state_at_abort, ""))
             await run
             await env.quiesce()
             cfg.latency = base_lat

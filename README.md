@@ -82,9 +82,9 @@ flowchart LR
 | Bandwidth utilization at latency 50, defaults | 92.7% | `make perf` (perf_latency, steady state, hardware counters) |
 | Bandwidth utilization at latency 200, FIFO 128 | 58.5% | `make perf` |
 | TLB hit rate, linear 64 KB transfer | 96.9% (496 hits, 16 misses) | `make perf` (perf_xlat) |
-| Achieved clock | not run | `make syn` |
-| Standard-cell area | not run | `make syn` |
-| Total power at target clock | not run | `make syn` |
+| Achieved clock (Yosys + OpenSTA, ASAP7, post-synthesis) | 1.00 GHz (1000 ps, WNS +46.1 ps) | `make syn` |
+| Standard-cell area | 17,018 µm² (clock gating off); 12,771 µm² (clock gating on) | `make syn` (Yosys stat, ASAP7 liberty) |
+| Total power at target clock (perf_saturate activity) | 8.69 mW with clock gating, 37.87 mW without | `make syn` (OpenSTA, SAIF) |
 | Regression | FIFO_DEPTH32_MAX_OUT_CH4_MAX_BURST8: 151/151 runs pass (16 tests, up to 10 seeds each); default: 401/401 runs pass (17 tests, up to 25 seeds each) | `make regress SEEDS=N` |
 | Formal | 7/7 proofs pass (unbounded); 5/5 cover sets reached; w_mux proven at reduced size (2 writes in flight, 1-4 beat bursts), full size in simulation | `make formal` |
 | Coverage | not run | `make cov` |

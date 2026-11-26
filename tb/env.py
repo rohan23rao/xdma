@@ -10,10 +10,13 @@ XdmaEnv builds the agents around the DUT (tb/hdl/xdma_tb.sv):
 It also provides the register-level sequences (start a chain, wait for idle)
 used by every test.
 """
+import os
+
 import cocotb
 from cocotb.triggers import ClockCycles, ReadOnly, RisingEdge
 from cocotbext.axi import AxiLiteBus, AxiLiteMaster, AxiStreamBus, AxiStreamSink
 
+import fcov
 from common import clock_reset, fail, params
 from models.axi_mem import AxiMemModel, MemConfig, SparseMem
 
@@ -97,6 +100,8 @@ class XdmaEnv:
             self.sinks.append(snk)
             self.drv.append(StreamDriver(dut, i, self.rng, self.src_pause))
             self.mons.append(StreamMonitor(dut, i))
+        if dut._name == "xdma_tb" and not os.environ.get("XDMA_GLS_RUN"):
+            fcov.CovMonitor(dut, self.p)
         await ClockCycles(dut.clk, 2)
 
     # ---------------------------------------------------------- registers
@@ -145,6 +150,8 @@ class XdmaEnv:
             if self.axi.idle():
                 break
         self.axi.check()
+        fcov.sample_bursts(self.axi, self.p["NUM_CH"])
+        fcov.write()
         for m in self.mons:
             if m.errors:
                 fail("stream monitor: " + "; ".join(m.errors))
