@@ -57,3 +57,9 @@ tb/results*.xml
 perf/build/
 *.dat
 tb/out/
+
+# Generated synthesis and performance outputs (summaries are copied into
+# results/ by `make results`)
+syn/out/
+perf/out/
+*.saif
